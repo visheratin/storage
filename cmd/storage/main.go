@@ -47,9 +47,9 @@ func NewCatalogHandler(db *bolt.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		err := storage.GetCatalog(db)
 		if err != nil {
-			w.WriteHeader(http.StatusOK)
-		} else {
 			w.WriteHeader(http.StatusNoContent)
+		} else {
+			w.WriteHeader(http.StatusOK)
 		}
 	}
 }
