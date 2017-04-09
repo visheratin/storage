@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"github.com/boltdb/bolt"
 	"io"
 	"log"
 	"os"
@@ -12,9 +13,9 @@ type FileService struct {
 	Dir string
 }
 
-type FileHandler func (file *os.File)
+type FileHandler func(file *os.File, db *bolt.DB)
 
-func (fs *FileService) Save(r io.Reader, p string, fh FileHandler) error {
+func (fs *FileService) Save(r io.Reader, p string, db *bolt.DB, fh FileHandler) error {
 	pt := filepath.Join(fs.Dir, p)
 	dir := filepath.Dir(pt)
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
@@ -30,7 +31,7 @@ func (fs *FileService) Save(r io.Reader, p string, fh FileHandler) error {
 
 	_, err = io.Copy(f, r)
 	if err == nil {
-		go fh(f)
+		go fh(f, db)
 	}
 	return err
 }
