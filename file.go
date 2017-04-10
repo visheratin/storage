@@ -2,12 +2,14 @@ package storage
 
 import (
 	"database/sql"
-	"hash/fnv"
 	"io"
 	"os"
 	"path"
 	"path/filepath"
 	"errors"
+	"log"
+	"encoding/hex"
+	"crypto/md5"
 )
 
 type FileService struct {
@@ -22,9 +24,6 @@ type File struct {
 }
 
 func (f *File) Save(db *sql.DB) (err error) {
-	dbid := fnv.New64()
-	dbid.Write([]byte(f.VirtPath))
-	f.Id = string(dbid.Sum(nil))
 	_, err = db.Exec("INSERT INTO filetable (virt_path, id) VALUES (?, ?)", f.VirtPath, f.Id)
 	return
 }
@@ -41,13 +40,20 @@ func NewFile(vp string, dir string) (f *File, err error) {
 	if vp == "" {
 		return nil, errors.New("File path is empty")
 	}
-
-	hash32 := fnv.New32a()
-	hash32.Write([]byte(vp))
-	f.Id = string(hash32.Sum32())
-	f.VirtPath = vp
-	f.Dir = dir
-	f.file, err = os.Create(f.FullPath())
+	hasher := md5.New()
+	hasher.Write([]byte(vp))
+	hs := hex.EncodeToString(hasher.Sum(nil))
+	log.Println(hs)
+	fl, err := os.Create(filepath.Join(dir, hs))
+	if err != nil{
+		return nil, err
+	}
+	f = &File{
+		hs,
+		vp,
+		dir,
+		fl,
+	}
 	return f, nil
 }
 
@@ -55,6 +61,7 @@ type FileHandler func(file *File, db *sql.DB)
 
 func (fs *FileService) Save(r io.Reader, p string, db *sql.DB, fh FileHandler) (err error) {
 	fl, err := NewFile(p, fs.Dir)
+	log.Println(fl.Id)
 	if err != nil {
 		return
 	}
@@ -62,15 +69,11 @@ func (fs *FileService) Save(r io.Reader, p string, db *sql.DB, fh FileHandler) (
 	if err != nil {
 		return
 	}
-
-	if err != nil {
-		return err
-	}
-
 	_, err = io.Copy(fl, r)
-	if err == nil {
-		go fh(fl, db)
+	if err != nil {
+		return
 	}
+	go fh(fl, db)
 	return nil
 }
 

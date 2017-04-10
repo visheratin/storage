@@ -12,13 +12,13 @@ import (
 )
 
 func initSQLite() (db *sql.DB, err error) {
-	db, err = sql.Open("sqlite3", "storage.db")
+	db, err = sql.Open("sqlite3", "file:storage.db?cache=shared&mode=rwc")
 	if err != nil {
 		return
 	}
 	_, err = db.Exec(`create table if not exists filetable (
 		virt_path varchar PRIMARY KEY,
-		uuid varchar
+		id varchar
 	)`)
 	if err != nil {
 		return
@@ -62,6 +62,7 @@ func NewUploadHandler(fs *storage.FileService, db *sql.DB) http.HandlerFunc {
 		path := vars["path"]
 		err := fs.Save(r.Body, path, db, storage.NetcdfFileHandler)
 		if err != nil {
+			log.Println(err)
 			w.WriteHeader(http.StatusConflict)
 		} else {
 			w.WriteHeader(http.StatusAccepted)
