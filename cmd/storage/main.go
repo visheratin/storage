@@ -1,8 +1,9 @@
 package main
 
 import (
-	"github.com/boltdb/bolt"
+	"database/sql"
 	"github.com/gorilla/mux"
+	_ "github.com/mattn/go-sqlite3"
 	"github.com/urfave/negroni"
 	"io"
 	"log"
@@ -10,62 +11,35 @@ import (
 	"storage"
 )
 
-var buckets = []string{"catalog", "metadata"}
-
-func initDB(filename string) *bolt.DB {
-	db, err := bolt.Open(filename, 0600, nil)
+func initSQLite() *sql.DB {
+	db, err := sql.Open("sqlite3", "storage.db")
 	if err != nil {
-		log.Fatal("could not open db")
+		log.Fatal(err)
 	}
-
-	db.Update(func(tx *bolt.Tx) error {
-		for _, b := range buckets {
-			tx.CreateBucketIfNotExists([]byte(b))
-		}
-		return nil
-	})
+	_, err = db.Exec("create table if not exists filetable (id integer not null primary key, virt_path varchar, real_path varchar)")
+	if err != nil {
+		log.Fatal(err)
+	}
+	_, err = db.Exec("create table if not exists catalog (id integer not null primary key, region varchar, measurements varchar, variables varchar, source varchar, level varchar, date varchar)")
+	if err != nil {
+		log.Fatal(err)
+	}
 	return db
 }
 
-func initRouter(fs *storage.FileService, db *bolt.DB) *mux.Router {
+func initRouter(fs *storage.FileService, db *sql.DB) *mux.Router {
 	r := mux.NewRouter()
-	r.HandleFunc("/{path:.*}", NewUploadHandler(fs, db)).Methods("POST")
-	r.HandleFunc("/{path:.*}", NewDownloadHandler(fs)).Methods("GET")
-	r.HandleFunc("/{path:getcatalog}", NewCatalogHandler(db)).Methods("GET")
-	r.HandleFunc("/{path:seekfile}", NewSeekCatalogHandler(db)).Methods("GET")
-	r.HandleFunc("/{path:getmetadata}", NewMetadataHandler(db)).Methods("GET")
+	r.HandleFunc("/{path:^(?!/catalog).*$}", NewUploadHandler(fs, db)).Methods("POST")
+	r.HandleFunc("/{path:^(?!/catalog).*$}", NewDownloadHandler(fs, db)).Methods("GET")
+	//r.HandleFunc("/{path:/catalog", NewCatalogQueryHandler(fs)).Methods("POST")
 	return r
 }
 
-func NewSeekCatalogHandler(db *bolt.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		// err := storage.SeekCatalogFile(db)
-	}
-}
-
-func NewCatalogHandler(db *bolt.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		err := storage.GetCatalog(db)
-		if err != nil {
-			w.WriteHeader(http.StatusNoContent)
-		} else {
-			w.WriteHeader(http.StatusOK)
-		}
-	}
-}
-
-func NewMetadataHandler(db *bolt.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		storage.GetMetadata(db)
-
-	}
-}
-
-func NewDownloadHandler(fs *storage.FileService) http.HandlerFunc {
+func NewDownloadHandler(fs *storage.FileService, db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		vars := mux.Vars(r)
 		path := vars["path"]
-		rd, err := fs.Read(path)
+		rd, err := fs.Read(path, db)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 		} else {
@@ -75,7 +49,7 @@ func NewDownloadHandler(fs *storage.FileService) http.HandlerFunc {
 	}
 }
 
-func NewUploadHandler(fs *storage.FileService, db *bolt.DB) http.HandlerFunc {
+func NewUploadHandler(fs *storage.FileService, db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		vars := mux.Vars(r)
 		path := vars["path"]
@@ -89,7 +63,8 @@ func NewUploadHandler(fs *storage.FileService, db *bolt.DB) http.HandlerFunc {
 }
 
 func main() {
-	db := initDB("storage.db")
+	db := initSQLite()
+	defer db.Close()
 	fs, _ := storage.NewFileService("test")
 	r := initRouter(fs, db)
 	n := negroni.Classic()
