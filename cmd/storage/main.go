@@ -11,27 +11,34 @@ import (
 	"storage"
 )
 
-func initSQLite() *sql.DB {
-	db, err := sql.Open("sqlite3", "storage.db")
+func initSQLite() (db *sql.DB, err error) {
+	db, err = sql.Open("sqlite3", "storage.db")
 	if err != nil {
-		log.Fatal(err)
+		return
 	}
-	_, err = db.Exec("create table if not exists filetable (id integer not null primary key, virt_path varchar, real_path varchar)")
+	_, err = db.Exec(`create table if not exists filetable (
+		virt_path varchar PRIMARY KEY,
+		uuid varchar
+	)`)
 	if err != nil {
-		log.Fatal(err)
+		return
 	}
-	_, err = db.Exec("create table if not exists catalog (id integer not null primary key, region varchar, measurements varchar, variables varchar, source varchar, level varchar, date varchar)")
-	if err != nil {
-		log.Fatal(err)
-	}
-	return db
+	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS metadata (
+		id      INTEGER PRIMARY KEY,
+		file_id VARCHAR,
+		type    char(1),
+		key     VARCHAR,
+		value   BLOB,
+		FOREIGN KEY(file_id) REFERENCES filetable (id)
+	)`)
+	return
 }
 
 func initRouter(fs *storage.FileService, db *sql.DB) *mux.Router {
 	r := mux.NewRouter()
-	r.HandleFunc("/{path:^(?!/catalog).*$}", NewUploadHandler(fs, db)).Methods("POST")
-	r.HandleFunc("/{path:^(?!/catalog).*$}", NewDownloadHandler(fs, db)).Methods("GET")
-	//r.HandleFunc("/{path:/catalog", NewCatalogQueryHandler(fs)).Methods("POST")
+	r.HandleFunc("/{path:.*}", NewUploadHandler(fs, db)).Methods("POST")
+	r.HandleFunc("/{path:.*}", NewDownloadHandler(fs, db)).Methods("GET")
+	//r.HandleFunc("/{path:/catalog}", NewCatalogQueryHandler(fs)).Methods("POST")
 	return r
 }
 
@@ -63,7 +70,10 @@ func NewUploadHandler(fs *storage.FileService, db *sql.DB) http.HandlerFunc {
 }
 
 func main() {
-	db := initSQLite()
+	db, err := initSQLite()
+	if err != nil {
+		log.Fatal(err)
+	}
 	defer db.Close()
 	fs, _ := storage.NewFileService("test")
 	r := initRouter(fs, db)
