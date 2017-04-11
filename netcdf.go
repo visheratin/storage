@@ -18,10 +18,10 @@ type Metadata struct {
 }
 
 type ValueHolder struct {
-	c string
-	i []int32
-	f []float32
-	t netcdf.Type
+	c   string
+	i   []int32
+	f   []float32
+	t   netcdf.Type
 	any interface{}
 }
 
@@ -151,4 +151,55 @@ func NetcdfFileHandler(f *File, db *sql.DB) {
 		md.Save(db)
 	}
 	tx.Commit()
+}
+
+type Coordinate struct {
+	Name      string
+	Value     interface{}
+	Unlimited bool
+	Index     int
+	Length    int
+}
+
+func Extract(filepath string, varname string, coords []Coordinate) ([]byte, error) {
+	df, err := netcdf.OpenFile(filepath, netcdf.NOWRITE)
+	if err != nil {
+		return nil, err
+	}
+	for _, c := range coords {
+		dv, err := df.Var(c.Name)
+		dv.
+		if err == nil {
+			switch c.Value.(type) {
+			case int:
+				var tp []int32
+				dv.ReadInt32s(tp)
+				for j, val := range tp {
+					if val == c.Value {
+						c.Index = j
+						break
+					}
+				}
+			case float32:
+				var tp []float32
+				dv.ReadFloat32s(tp)
+				for j, val := range tp {
+					if val == c.Value {
+						c.Index = j
+						break
+					}
+				}
+			default:
+				continue
+			}
+		} else {
+			c.Index = c.Value.(int)
+			log.Println(err)
+		}
+	}
+	v, err := df.Var(varname)
+	if err != nil {
+		return nil, err
+	}
+	return nil, nil
 }

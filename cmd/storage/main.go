@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"storage"
+	"encoding/json"
 )
 
 func initSQLite() (db *sql.DB, err error) {
@@ -36,10 +37,43 @@ func initSQLite() (db *sql.DB, err error) {
 
 func initRouter(fs *storage.FileService, db *sql.DB) *mux.Router {
 	r := mux.NewRouter()
-	r.HandleFunc("/{path:.*}", NewUploadHandler(fs, db)).Methods("POST")
-	r.HandleFunc("/{path:.*}", NewDownloadHandler(fs, db)).Methods("GET")
-	//r.HandleFunc("/{path:/catalog}", NewCatalogQueryHandler(fs)).Methods("POST")
+	r.HandleFunc("/upload/{path:.*}", NewHandler(fs, db)).Methods("POST")
+	r.HandleFunc("/upload/{path:.*}", NewUploadHandler(fs, db)).Methods("POST")
+	r.HandleFunc("/download/{path:.*}", NewDownloadHandler(fs, db)).Methods("GET")
+	r.HandleFunc("/catalog", NewCatalogDumpHandler(db)).Methods("GET")
 	return r
+}
+
+type CatalogEntry struct {
+	Path string
+	Type string
+	Key string
+	Value string
+}
+func NewCatalogDumpHandler(db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		res, err := db.Query("SELECT DISTINCT virt_path, type, key, value FROM filetable f JOIN metadata m ON f.id = m.file_id")
+		if err != nil{
+			log.Println(err)
+		}
+		defer res.Close()
+		var cs []CatalogEntry
+		for res.Next(){
+			var ce CatalogEntry
+			err = res.Scan(&ce.Path, &ce.Type, &ce.Key, &ce.Value)
+			if err != nil{
+				log.Println(err)
+				break
+			}
+			cs = append(cs, ce)
+		}
+		js, err := json.Marshal(cs)
+		if err!=nil{
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		w.Header().Set("content-type", "application/json")
+		w.Write(js)
+	}
 }
 
 func NewDownloadHandler(fs *storage.FileService, db *sql.DB) http.HandlerFunc {
