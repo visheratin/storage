@@ -4,6 +4,9 @@ import (
 	"database/sql"
 	"github.com/bnoon/go-netcdf/netcdf"
 	"log"
+	"errors"
+	"math"
+	"encoding/binary"
 )
 
 const ATTR = "A"
@@ -155,7 +158,7 @@ func NetcdfFileHandler(f *File, db *sql.DB) {
 
 type Coordinate struct {
 	Name      string
-	Value     interface{}
+	Value     float64
 	Unlimited bool
 	Index     int
 	Length    int
@@ -166,7 +169,83 @@ func Extract(filepath string, varname string, coords []Coordinate) ([]byte, erro
 	if err != nil {
 		return nil, err
 	}
-	for _, c := range coords {
+	v, err := df.Var(varname)
+	if err != nil{
+		return nil, err
+	}
+	vdims, err := v.Dims()
+	if err != nil{
+		return nil, err
+	}
+	if len(coords)==1 {
+		uc := coords[0]
+		if !uc.Unlimited{
+			return nil, errors.New("Single coordinate is not unlimited")
+		}
+		uvar, err := df.Var(uc.Name)
+		if err != nil{
+			return nil, err
+		}
+		nreg, err := FindValue(uc.Value, uvar)
+		if err != nil{
+			return nil, err
+		}
+		v.
+		if n, _ := udim.Name(); n != uc.Name {
+			return nil, errors.New("Unlimited dim names do not match")
+		}
+		for i := 1; len(vdims) ; i++  {
+
+		}
+	}
+}
+
+const EPS  = 1e-15
+
+func GetData(v netcdf.Var, offsets []int, lens []int) ([]byte, error) {
+	t, err := v.Type()
+	if err!= nil{
+		return nil, err
+	}
+	switch t {
+	case netcdf.INT:
+
+
+	}
+}
+
+func FindValue(value float64, v netcdf.Var) (int, error) {
+	tp, err := v.Type()
+	if err != nil{
+		return nil, err
+	}
+	switch tp {
+	case netcdf.INT:
+		var data []int32
+		v.ReadInt32s(data)
+		val := int32(value)
+		for i, v2 := range data{
+			if math.Abs(float64(v2 - val)) < EPS {
+				return i, nil
+			}
+		}
+	case netcdf.FLOAT:
+		var data []float32
+		v.ReadFloat32s(data)
+		val := float32(value)
+		for i, v2 := range data{
+			if math.Abs(float64(v2 - val)) < EPS {
+				return i, nil
+			}
+		}
+	default:
+		return nil, errors.New("Value not found")
+	}
+	return nil, errors.New("STRANGE SHIT HAPPENED")
+}
+
+
+/*	for _, c := range coords {
 		dv, err := df.Var(c.Name)
 		dv.
 		if err == nil {
@@ -202,4 +281,4 @@ func Extract(filepath string, varname string, coords []Coordinate) ([]byte, erro
 		return nil, err
 	}
 	return nil, nil
-}
+	*/
