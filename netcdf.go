@@ -161,7 +161,8 @@ func NetcdfFileHandler(f string, db *sql.DB) {
 
 type Coordinate struct {
 	Name  string
-	Value float64
+	Min   float64
+	Max   float64
 	Index int
 }
 
@@ -192,21 +193,22 @@ func Extract(filepath string, varname string, coords []Coordinate) ([]byte, stri
 			if n == c.Name {
 				vv, err := df.Var(c.Name)
 				if err == nil {
-					nreg, err := FindValue(c.Value, vv)
+					iMin, err := FindValue(c.Min, vv)
+					iMax, err := FindValue(c.Max, vv)
 					if err != nil {
 						return nil, "", err
 					}
-					offsets[i] = nreg
+					offsets[i] = iMin
+					lens[i] = iMax - iMin + 1
 				} else {
-					offsets[i] = int(c.Value)
+					lens[i] = int(c.Max-c.Min) + 1
+					offsets[i] = int(c.Min)
 				}
 				found = true
 				break
 			}
 		}
-		if found {
-			lens[i] = 1
-		} else {
+		if !found {
 			lens[i] = int(l)
 		}
 	}
@@ -285,20 +287,37 @@ func FindValue(value float64, v netcdf.Var) (int, error) {
 			return -1, err
 		}
 		val := int32(value)
+		min := math.MaxInt32
+		mindif := math.MaxFloat64
 		for i, v2 := range data {
-			if math.Abs(float64(v2-val)) < EPS {
+			dif := math.Abs(float64(v2 - val))
+			if dif < mindif {
+				min = i
+			}
+			if dif < EPS {
 				return i, nil
 			}
 		}
+		return min, nil
 	case netcdf.FLOAT:
 		data := make([]float32, l)
-		v.ReadFloat32s(data)
+		err = v.ReadFloat32s(data)
+		if err != nil {
+			return -1, err
+		}
 		val := float32(value)
+		min := math.MaxInt32
+		mindif := math.MaxFloat64
 		for i, v2 := range data {
-			if math.Abs(float64(v2-val)) < EPS {
+			dif := math.Abs(float64(v2 - val))
+			if dif < mindif {
+				min = i
+			}
+			if dif < EPS {
 				return i, nil
 			}
 		}
+		return min, nil
 	}
 	return -1, errors.New("Value not found")
 }
