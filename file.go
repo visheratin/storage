@@ -57,15 +57,12 @@ func NewFile(vp string, dir string) (f *File, err error) {
 	return f, nil
 }
 
-type FileHandler func(file *File, db *sql.DB)
+type FileHandler func(path string, db *sql.DB)
 
 func (fs *FileService) Save(r io.Reader, p string, db *sql.DB, fh FileHandler) (err error) {
-	fl, err := NewFile(p, fs.Dir)
-	log.Println(fl.Id)
-	if err != nil {
-		return
-	}
-	err = fl.Save(db)
+	id := Resolve(p)
+	fpath := filepath.Join(fs.Dir, id)
+	fl, err := os.Create(fpath)
 	if err != nil {
 		return
 	}
@@ -73,8 +70,18 @@ func (fs *FileService) Save(r io.Reader, p string, db *sql.DB, fh FileHandler) (
 	if err != nil {
 		return
 	}
-	go fh(fl, db)
+	_, err = db.Exec("INSERT INTO filetable (virt_path, id) VALUES (?, ?)", p, id)
+	if err != nil{
+		return
+	}
+	go fh(fpath, db)
 	return nil
+}
+
+func Resolve(path string) string {
+	hasher := md5.New()
+	hasher.Write([]byte(path))
+	return hex.EncodeToString(hasher.Sum(nil))
 }
 
 func NewFileService(dir string) (*FileService, error) {
@@ -86,16 +93,8 @@ func NewFileService(dir string) (*FileService, error) {
 	return fs, nil
 }
 
-func (fs *FileService) Read(p string, db *sql.DB) (io.Reader, error) {
-	res, err := db.Query("SELECT id FROM filetable WHERE virt_path = ?", p)
-	defer res.Close()
-	if err != nil {
-		return nil, err
-	}
-	res.Next()
-	var id string
-	res.Scan(&id)
-
+func (fs *FileService) Read(p string) (io.Reader, error) {
+	id := Resolve(p)
 	return os.Open(path.Join(fs.Dir, id))
 }
 

@@ -1,12 +1,14 @@
 package storage
 
 import (
+	"bytes"
 	"database/sql"
+	"encoding/binary"
+	"errors"
 	"github.com/bnoon/go-netcdf/netcdf"
 	"log"
-	"errors"
 	"math"
-	"encoding/binary"
+	"path/filepath"
 )
 
 const ATTR = "A"
@@ -14,10 +16,10 @@ const DIM = "D"
 const VAR = "V"
 
 type Metadata struct {
-	File  *File
-	Type  string
-	Key   string
-	Value ValueHolder
+	FileID string
+	Type   string
+	Key    string
+	Value  ValueHolder
 }
 
 type ValueHolder struct {
@@ -68,7 +70,7 @@ func (vh *ValueHolder) GetValue() interface{} {
 
 func (m *Metadata) Save(db *sql.DB) {
 	res, err := db.Exec("INSERT INTO metadata (file_id, type, key, value) VALUES (?,?,?,?)",
-		m.File.Id,
+		m.FileID,
 		m.Type,
 		m.Key,
 		m.Value.GetValue())
@@ -78,12 +80,13 @@ func (m *Metadata) Save(db *sql.DB) {
 	}
 }
 
-func NetcdfFileHandler(f *File, db *sql.DB) {
-	df, err := netcdf.OpenFile(f.FullPath(), netcdf.NOWRITE)
+func NetcdfFileHandler(f string, db *sql.DB) {
+	df, err := netcdf.OpenFile(f, netcdf.NOWRITE)
 	if err != nil {
-		log.Println(err, f.FullPath())
+		log.Println(err, f)
 		return
 	}
+	fid := filepath.Base(f)
 	var mds []Metadata
 	ngattrs, err := df.NAttrs()
 	if err != nil {
@@ -97,9 +100,9 @@ func NetcdfFileHandler(f *File, db *sql.DB) {
 		}
 
 		md := Metadata{
-			File: f,
-			Type: ATTR,
-			Key:  a.Name(),
+			FileID: fid,
+			Type:   ATTR,
+			Key:    a.Name(),
 		}
 		md.Value.SetValue(a)
 		mds = append(mds, md)
@@ -118,9 +121,9 @@ func NetcdfFileHandler(f *File, db *sql.DB) {
 			continue
 		}
 		md := Metadata{
-			File: f,
-			Type: VAR,
-			Key:  name,
+			FileID: fid,
+			Type:   VAR,
+			Key:    name,
 		}
 		md.Value.t = netcdf.STRING
 		md.Value.any = t
@@ -138,9 +141,9 @@ func NetcdfFileHandler(f *File, db *sql.DB) {
 				continue
 			}
 			md = Metadata{
-				File: f,
-				Type: DIM,
-				Key:  n,
+				FileID: fid,
+				Type:   DIM,
+				Key:    n,
 			}
 			md.Value.t = netcdf.INT
 			md.Value.i = []int32{int32(l)}
@@ -157,93 +160,148 @@ func NetcdfFileHandler(f *File, db *sql.DB) {
 }
 
 type Coordinate struct {
-	Name      string
-	Value     float64
-	Unlimited bool
-	Index     int
-	Length    int
+	Name  string
+	Value float64
+	Index int
 }
 
-func Extract(filepath string, varname string, coords []Coordinate) ([]byte, error) {
+func Extract(filepath string, varname string, coords []Coordinate) ([]byte, string, error) {
 	df, err := netcdf.OpenFile(filepath, netcdf.NOWRITE)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	v, err := df.Var(varname)
-	if err != nil{
-		return nil, err
+	if err != nil {
+		return nil, "", err
 	}
 	vdims, err := v.Dims()
-	if err != nil{
-		return nil, err
+	if err != nil {
+		return nil, "", err
 	}
-	if len(coords)==1 {
-		uc := coords[0]
-		if !uc.Unlimited{
-			return nil, errors.New("Single coordinate is not unlimited")
-		}
-		uvar, err := df.Var(uc.Name)
-		if err != nil{
-			return nil, err
-		}
-		nreg, err := FindValue(uc.Value, uvar)
-		if err != nil{
-			return nil, err
-		}
-		v.
-		if n, _ := udim.Name(); n != uc.Name {
-			return nil, errors.New("Unlimited dim names do not match")
-		}
-		for i := 1; len(vdims) ; i++  {
 
+	offsets := make([]int, len(vdims))
+	lens := make([]int, len(vdims))
+	for i, val := range vdims {
+		n, err := val.Name()
+		if err != nil {
+			return nil, "", err
+		}
+		l, err := val.Len()
+		found := false
+		for _, c := range coords {
+			if n == c.Name {
+				vv, err := df.Var(c.Name)
+				if err == nil {
+					nreg, err := FindValue(c.Value, vv)
+					if err != nil {
+						return nil, "", err
+					}
+					offsets[i] = nreg
+				} else {
+					offsets[i] = int(c.Value)
+				}
+				found = true
+				break
+			}
+		}
+		if found {
+			lens[i] = 1
+		} else {
+			lens[i] = int(l)
 		}
 	}
+	log.Println(offsets, lens)
+	data, tp, err := GetData(v, offsets, lens)
+	if err != nil {
+		return nil, "", err
+	}
+	return data, tp, nil
 }
 
-const EPS  = 1e-15
+const EPS = 1e-15
 
-func GetData(v netcdf.Var, offsets []int, lens []int) ([]byte, error) {
+func GetData(v netcdf.Var, offsets []int, lens []int) ([]byte, string, error) {
 	t, err := v.Type()
-	if err!= nil{
-		return nil, err
+	log.Println(t)
+	if err != nil {
+		return nil, "", err
+	}
+	buf := new(bytes.Buffer)
+	total := 1
+	for _, l := range lens {
+		total *= l
 	}
 	switch t {
+	case netcdf.SHORT:
+		intdata := make([]int16, total)
+		err = v.ReadArrayInt16s(offsets, lens, intdata)
+		if err != nil {
+			return nil, "", err
+		}
+		log.Println(intdata)
+		err = binary.Write(buf, binary.LittleEndian, intdata)
+		if err != nil {
+			return nil, "", err
+		}
+		return buf.Bytes(), "SHORT", nil
 	case netcdf.INT:
-
-
+		intdata := make([]int32, total)
+		err = v.ReadArrayInt32s(offsets, lens, intdata)
+		if err != nil {
+			return nil, "", err
+		}
+		err = binary.Write(buf, binary.LittleEndian, intdata)
+		if err != nil {
+			return nil, "", err
+		}
+		return buf.Bytes(), "INT", nil
+	case netcdf.FLOAT:
+		floatdata := make([]float32, total)
+		err = v.ReadArrayFloat32s(offsets, lens, floatdata)
+		if err != nil {
+			return nil, "", err
+		}
+		err = binary.Write(buf, binary.LittleEndian, floatdata)
+		if err != nil {
+			return nil, "", err
+		}
+		return buf.Bytes(), "FLOAT", nil
+	default:
+		return nil, "", errors.New("Type mismatch")
 	}
 }
 
 func FindValue(value float64, v netcdf.Var) (int, error) {
 	tp, err := v.Type()
-	if err != nil{
-		return nil, err
+	if err != nil {
+		return -1, err
 	}
+	l, err := v.Len()
 	switch tp {
 	case netcdf.INT:
-		var data []int32
-		v.ReadInt32s(data)
+		data := make([]int32, l)
+		err = v.ReadInt32s(data)
+		if err != nil {
+			return -1, err
+		}
 		val := int32(value)
-		for i, v2 := range data{
-			if math.Abs(float64(v2 - val)) < EPS {
+		for i, v2 := range data {
+			if math.Abs(float64(v2-val)) < EPS {
 				return i, nil
 			}
 		}
 	case netcdf.FLOAT:
-		var data []float32
+		data := make([]float32, l)
 		v.ReadFloat32s(data)
 		val := float32(value)
-		for i, v2 := range data{
-			if math.Abs(float64(v2 - val)) < EPS {
+		for i, v2 := range data {
+			if math.Abs(float64(v2-val)) < EPS {
 				return i, nil
 			}
 		}
-	default:
-		return nil, errors.New("Value not found")
 	}
-	return nil, errors.New("STRANGE SHIT HAPPENED")
+	return -1, errors.New("Value not found")
 }
-
 
 /*	for _, c := range coords {
 		dv, err := df.Var(c.Name)
@@ -281,4 +339,4 @@ func FindValue(value float64, v netcdf.Var) (int, error) {
 		return nil, err
 	}
 	return nil, nil
-	*/
+*/

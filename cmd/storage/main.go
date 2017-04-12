@@ -2,6 +2,7 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"github.com/gorilla/mux"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/urfave/negroni"
@@ -9,7 +10,7 @@ import (
 	"log"
 	"net/http"
 	"storage"
-	"encoding/json"
+	"path/filepath"
 )
 
 func initSQLite() (db *sql.DB, err error) {
@@ -37,38 +38,70 @@ func initSQLite() (db *sql.DB, err error) {
 
 func initRouter(fs *storage.FileService, db *sql.DB) *mux.Router {
 	r := mux.NewRouter()
-	r.HandleFunc("/upload/{path:.*}", NewHandler(fs, db)).Methods("POST")
+	r.HandleFunc("/query/{path:.*}", NewQueryHandler(fs)).Methods("POST")
 	r.HandleFunc("/upload/{path:.*}", NewUploadHandler(fs, db)).Methods("POST")
-	r.HandleFunc("/download/{path:.*}", NewDownloadHandler(fs, db)).Methods("GET")
+	r.HandleFunc("/download/{path:.*}", NewDownloadHandler(fs)).Methods("GET")
 	r.HandleFunc("/catalog", NewCatalogDumpHandler(db)).Methods("GET")
 	return r
 }
 
-type CatalogEntry struct {
-	Path string
-	Type string
-	Key string
-	Value string
+//go:generate msgp
+type Query struct {
+	Variable    string               `json:"variable"`
+	Coordinates []storage.Coordinate `json:"coordinates"`
 }
+
+type Result struct {
+	Type  string `json:"type"`
+	Value []byte `json:"value"`
+}
+func NewQueryHandler(fs *storage.FileService) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		vars := mux.Vars(r)
+		path := vars["path"]
+		var q Query
+		err := json.NewDecoder(r.Body).Decode(&q)
+		//err := q.DecodeMsg(msgp.NewReader(r.Body))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		vals, tp, err := storage.Extract(filepath.Join(fs.Dir, storage.Resolve(path)), q.Variable, q.Coordinates)
+		if err == nil {
+			res := Result{tp, vals}
+			json.NewEncoder(w).Encode(&res)
+			//res.EncodeMsg(msgp.NewWriter(w))
+		} else {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+	}
+}
+
+type CatalogEntry struct {
+	Path  string `json:"path"`
+	Type  string `json:"type"`
+	Key   string `json:"key"`
+	Value string `json:"value"`
+}
+
 func NewCatalogDumpHandler(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		res, err := db.Query("SELECT DISTINCT virt_path, type, key, value FROM filetable f JOIN metadata m ON f.id = m.file_id")
-		if err != nil{
+		if err != nil {
 			log.Println(err)
 		}
 		defer res.Close()
 		var cs []CatalogEntry
-		for res.Next(){
+		for res.Next() {
 			var ce CatalogEntry
 			err = res.Scan(&ce.Path, &ce.Type, &ce.Key, &ce.Value)
-			if err != nil{
+			if err != nil {
 				log.Println(err)
 				break
 			}
 			cs = append(cs, ce)
 		}
 		js, err := json.Marshal(cs)
-		if err!=nil{
+		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 		w.Header().Set("content-type", "application/json")
@@ -76,11 +109,11 @@ func NewCatalogDumpHandler(db *sql.DB) http.HandlerFunc {
 	}
 }
 
-func NewDownloadHandler(fs *storage.FileService, db *sql.DB) http.HandlerFunc {
+func NewDownloadHandler(fs *storage.FileService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		vars := mux.Vars(r)
 		path := vars["path"]
-		rd, err := fs.Read(path, db)
+		rd, err := fs.Read(path)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 		} else {
@@ -110,7 +143,7 @@ func main() {
 		log.Fatal(err)
 	}
 	defer db.Close()
-	fs, _ := storage.NewFileService("test")
+	fs, _ := storage.NewFileService("files")
 	r := initRouter(fs, db)
 	n := negroni.Classic()
 	n.UseHandler(r)
