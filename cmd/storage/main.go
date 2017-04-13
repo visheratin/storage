@@ -42,7 +42,7 @@ func initRouter(fs *storage.FileService, db *sql.DB) *mux.Router {
 	r.HandleFunc("/upload/{path:.*}", NewUploadHandler(fs, db)).Methods("POST")
 	r.HandleFunc("/download/{path:.*}", NewDownloadHandler(fs)).Methods("GET")
 	r.HandleFunc("/catalog", NewCatalogDumpHandler(db)).Methods("GET")
-	r.HandleFunc("/delete/{path:.*}", NewDeleteHandler(fs, db)).Methods("GET")
+	r.HandleFunc("/delete/{path:.*}", NewDeleteHandler(fs, db)).Methods("DELETE")
 	return r
 }
 
