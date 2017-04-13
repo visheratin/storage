@@ -9,8 +9,8 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"storage"
 	"path/filepath"
+	"storage"
 )
 
 func initSQLite() (db *sql.DB, err error) {
@@ -42,6 +42,7 @@ func initRouter(fs *storage.FileService, db *sql.DB) *mux.Router {
 	r.HandleFunc("/upload/{path:.*}", NewUploadHandler(fs, db)).Methods("POST")
 	r.HandleFunc("/download/{path:.*}", NewDownloadHandler(fs)).Methods("GET")
 	r.HandleFunc("/catalog", NewCatalogDumpHandler(db)).Methods("GET")
+	r.HandleFunc("/delete/{path:.*}", NewDeleteHandler(fs, db)).Methods("GET")
 	return r
 }
 
@@ -55,6 +56,20 @@ type Result struct {
 	Type  string `json:"type"`
 	Value []byte `json:"value"`
 }
+
+func NewDeleteHandler(fs *storage.FileService, db *sql.DB) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		vars := mux.Vars(r)
+		path := vars["path"]
+		err := fs.DeleteFile(path, db)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		} else {
+			w.WriteHeader(http.StatusOK)
+		}
+	}
+}
+
 func NewQueryHandler(fs *storage.FileService) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		vars := mux.Vars(r)

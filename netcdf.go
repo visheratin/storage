@@ -9,6 +9,7 @@ import (
 	"log"
 	"math"
 	"path/filepath"
+	"strings"
 )
 
 const ATTR = "A"
@@ -69,12 +70,11 @@ func (vh *ValueHolder) GetValue() interface{} {
 }
 
 func (m *Metadata) Save(db *sql.DB) {
-	res, err := db.Exec("INSERT INTO metadata (file_id, type, key, value) VALUES (?,?,?,?)",
+	_, err := db.Exec("INSERT INTO metadata (file_id, type, key, value) VALUES (?,?,?,?)",
 		m.FileID,
 		m.Type,
 		m.Key,
 		m.Value.GetValue())
-	log.Println(res)
 	if err != nil {
 		log.Println(err)
 	}
@@ -83,6 +83,7 @@ func (m *Metadata) Save(db *sql.DB) {
 func NetcdfFileHandler(f string, db *sql.DB) {
 	df, err := netcdf.OpenFile(f, netcdf.NOWRITE)
 	if err != nil {
+		log.Println("here")
 		log.Println(err, f)
 		return
 	}
@@ -115,19 +116,12 @@ func NetcdfFileHandler(f string, db *sql.DB) {
 			log.Println(err, 4)
 			continue
 		}
-		t, err := v.Type()
-		if err != nil {
-			log.Println(err, 5)
-			continue
-		}
 		md := Metadata{
 			FileID: fid,
 			Type:   VAR,
 			Key:    name,
 		}
-		md.Value.t = netcdf.STRING
-		md.Value.any = t
-		mds = append(mds, md)
+		var dimstring []string
 		dims, err := v.Dims()
 		for _, d := range dims {
 			n, err := d.Name()
@@ -140,23 +134,33 @@ func NetcdfFileHandler(f string, db *sql.DB) {
 				log.Println(err, 7)
 				continue
 			}
-			md = Metadata{
+			mdd := Metadata{
 				FileID: fid,
 				Type:   DIM,
 				Key:    n,
 			}
-			md.Value.t = netcdf.INT
-			md.Value.i = []int32{int32(l)}
-			mds = append(mds, md)
+			mdd.Value.t = netcdf.INT
+			mdd.Value.i = []int32{int32(l)}
+			dimstring = append(dimstring, n)
+			mds = append(mds, mdd)
 		}
+		md.Value.t = netcdf.STRING
+		md.Value.any = strings.Join(dimstring, " ")
+		mds = append(mds, md)
 	}
+	log.Println("Filling catalog for", fid)
 	tx, err := db.Begin()
 	defer tx.Rollback()
-	log.Println(mds)
+	_, err = db.Exec("DELETE FROM metadata WHERE file_id = ?", fid)
+	if err != nil {
+		log.Println(err)
+		return
+	}
 	for _, md := range mds {
 		md.Save(db)
 	}
 	tx.Commit()
+	log.Println("Catalog filled for", fid)
 }
 
 type Coordinate struct {
