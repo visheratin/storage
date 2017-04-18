@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"github.com/bnoon/go-netcdf/netcdf"
 	"log"
@@ -15,6 +16,7 @@ import (
 const ATTR = "A"
 const DIM = "D"
 const VAR = "V"
+const VARATTR = "VA"
 
 type Metadata struct {
 	FileID string
@@ -29,6 +31,33 @@ type ValueHolder struct {
 	f   []float32
 	t   netcdf.Type
 	any interface{}
+}
+
+func GetAttValue(a netcdf.Attr) (interface{}, error) {
+	len, err := a.Len()
+	if err != nil {
+		return nil, err
+	}
+	t, err := a.Type()
+	if err != nil {
+		return nil, err
+	}
+	switch t {
+	case netcdf.INT:
+		v := make([]int32, len)
+		a.ReadInt32s(v)
+		return v[0], nil
+	case netcdf.CHAR:
+		v := make([]byte, len)
+		a.ReadBytes(v)
+		return string(v), nil
+	case netcdf.FLOAT:
+		v := make([]float32, len)
+		a.ReadFloat32s(v)
+		return v[0], nil
+	default:
+		return nil, errors.New("Type mismatch")
+	}
 }
 
 func (vh *ValueHolder) SetValue(a netcdf.Attr) {
@@ -99,7 +128,6 @@ func NetcdfFileHandler(f string, db *sql.DB) {
 			log.Println(err, 2)
 			return
 		}
-
 		md := Metadata{
 			FileID: fid,
 			Type:   ATTR,
@@ -109,12 +137,30 @@ func NetcdfFileHandler(f string, db *sql.DB) {
 		mds = append(mds, md)
 	}
 	nvars, err := df.NVars()
+	any := make(map[string]interface{})
 	for i := 0; i < nvars; i++ {
 		v := df.VarN(i)
 		name, err := v.Name()
 		if err != nil {
 			log.Println(err, 4)
 			continue
+		}
+		len, err := v.NAttrs()
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		for j := 0; j < int(len); j++ {
+			att, err := v.AttrN(j)
+			if err != nil {
+				log.Println(err)
+				return
+			}
+			any[att.Name()], err = GetAttValue(att)
+			if err != nil {
+				log.Println(err)
+				return
+			}
 		}
 		md := Metadata{
 			FileID: fid,
@@ -144,9 +190,19 @@ func NetcdfFileHandler(f string, db *sql.DB) {
 			dimstring = append(dimstring, n)
 			mds = append(mds, mdd)
 		}
+		js, err := json.Marshal(any)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		mv := Metadata{Type: VARATTR, FileID: fid, Key: name}
+		mv.Value.any = js
+		mv.Value.t = netcdf.STRING
 		md.Value.t = netcdf.STRING
 		md.Value.any = strings.Join(dimstring, " ")
 		mds = append(mds, md)
+		mds = append(mds, mv)
+		any = make(map[string]interface{})
 	}
 	log.Println("Filling catalog for", fid)
 	tx, err := db.Begin()
