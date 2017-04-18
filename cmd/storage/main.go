@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"storage"
+	"net"
 )
 
 func initSQLite() (db *sql.DB, err error) {
@@ -162,5 +163,11 @@ func main() {
 	r := initRouter(fs, db)
 	n := negroni.Classic()
 	n.UseHandler(r)
-	log.Fatal(http.ListenAndServe(":8000", n))
+	//log.Fatal(http.ListenAndServe(":8000", n))
+	server := &http.Server{Handler:  n}
+	l, err := net.Listen("tcp4",  ":8000")
+	if err != nil {
+		log.Fatal(err)
+	}
+	log.Fatal(server.Serve(l))
 }
