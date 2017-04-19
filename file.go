@@ -32,7 +32,7 @@ func (fs *FileService) Save(r io.Reader, p string, db *sql.DB, fh FileHandler) (
 	if err != nil{
 		return
 	}
-	go fh(fpath, db)
+	fh(fpath, db)
 	return nil
 }
 
