@@ -328,6 +328,17 @@ func GetData(v netcdf.Var, offsets []int, lens []int) ([]byte, string, error) {
 			return nil, "", err
 		}
 		return buf.Bytes(), "FLOAT", nil
+	case netcdf.DOUBLE:
+		floatdata := make([]float64, total)
+		err = v.ReadArrayFloat64s(offsets, lens, floatdata)
+		if err != nil {
+			return nil, "", err
+		}
+		err = binary.Write(buf, binary.LittleEndian, floatdata)
+		if err != nil {
+			return nil, "", err
+		}
+		return buf.Bytes(), "DOUBLE", nil
 	default:
 		return nil, "", errors.New("Type mismatch")
 	}
