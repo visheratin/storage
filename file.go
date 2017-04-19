@@ -20,6 +20,7 @@ func (fs *FileService) Save(r io.Reader, p string, db *sql.DB, fh FileHandler) (
 	id := Resolve(p)
 	fpath := filepath.Join(fs.Dir, id)
 	fl, err := os.Create(fpath)
+	defer fl.Close()
 	if err != nil {
 		return
 	}
@@ -61,7 +62,7 @@ func NewFileService(dir string) (*FileService, error) {
 	return fs, nil
 }
 
-func (fs *FileService) Read(p string) (io.Reader, error) {
+func (fs *FileService) Read(p string) (*os.File, error) {
 	id := Resolve(p)
 	return os.Open(path.Join(fs.Dir, id))
 }

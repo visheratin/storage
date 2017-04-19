@@ -10,7 +10,7 @@ import (
 	"log"
 	"net/http"
 	"path/filepath"
-	"storage"
+	"github.com/hatelikeme/storage"
 	"net"
 )
 
@@ -130,6 +130,7 @@ func NewDownloadHandler(fs *storage.FileService) http.HandlerFunc {
 		vars := mux.Vars(r)
 		path := vars["path"]
 		rd, err := fs.Read(path)
+		defer rd.Close()
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 		} else {
@@ -144,6 +145,7 @@ func NewUploadHandler(fs *storage.FileService, db *sql.DB) http.HandlerFunc {
 		vars := mux.Vars(r)
 		path := vars["path"]
 		err := fs.Save(r.Body, path, db, storage.NetcdfFileHandler)
+		r.Body.Close()
 		if err != nil {
 			log.Println(err)
 			w.WriteHeader(http.StatusConflict)

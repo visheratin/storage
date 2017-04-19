@@ -111,6 +111,7 @@ func (m *Metadata) Save(db *sql.DB) {
 
 func NetcdfFileHandler(f string, db *sql.DB) {
 	df, err := netcdf.OpenFile(f, netcdf.NOWRITE)
+	defer df.Close()
 	if err != nil {
 		log.Println("here")
 		log.Println(err, f)
@@ -228,6 +229,7 @@ type Coordinate struct {
 
 func Extract(filepath string, varname string, coords []Coordinate) ([]byte, string, error) {
 	df, err := netcdf.OpenFile(filepath, netcdf.NOWRITE)
+	defer df.Close()
 	if err != nil {
 		return nil, "", err
 	}
