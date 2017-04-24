@@ -1,0 +1,14 @@
+---
+
+- hosts: all
+  remote_user: root
+  become: yes
+  become_method: sudo
+ 
+  roles:
+    - epel
+    - devtools
+    - netcdf
+    - sqlite
+    - git
+    - golang
