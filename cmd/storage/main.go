@@ -3,173 +3,231 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
+	"log"
+	"net"
+	"net/http"
+
 	"github.com/gorilla/mux"
+	"github.com/hatelikeme/storage"
+	"github.com/hatelikeme/storage/netcdf"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/urfave/negroni"
-	"io"
-	"log"
-	"net/http"
-	"path/filepath"
-	"github.com/hatelikeme/storage"
-	"net"
 )
 
-func initSQLite() (db *sql.DB, err error) {
-	db, err = sql.Open("sqlite3", "file:storage.db?cache=shared&mode=rwc")
+const createFilesTable = `CREATE TABLE IF NOT EXISTS files (
+	virt_path VARCHAR PRIMARY KEY,
+	id VARCHAR
+)`
+
+const createMetadataTable = `CREATE TABLE IF NOT EXISTS metadata (
+	id      INTEGER PRIMARY KEY,
+	file_id VARCHAR,
+	type    VARCHAR,
+	key     VARCHAR,
+	value   BLOB,
+	FOREIGN KEY(file_id) REFERENCES filetable (id)
+)`
+
+const upsertFile = "INSERT OR REPLACE INTO files (virt_path, id) VALUES (?, ?)"
+const insertMetadata = "INSERT INTO metadata (file_id, type, key, value) VALUES (?,?,?,?)"
+const cleanMetadata = "DELETE FROM metadata WHERE file_id = ?"
+const deleteFile = "DELETE FROM files WHERE virt_path = ?"
+
+func createDB(name string) (*sql.DB, error) {
+	db, err := sql.Open("sqlite3", fmt.Sprintf("file:%s?cache=shared&mode=rwc", name))
+
 	if err != nil {
-		return
+		return nil, err
 	}
-	_, err = db.Exec(`create table if not exists filetable (
-		virt_path varchar PRIMARY KEY,
-		id varchar
-	)`)
+	_, err = db.Exec(createFilesTable)
 	if err != nil {
-		return
+		return nil, err
 	}
-	_, err = db.Exec(`CREATE TABLE IF NOT EXISTS metadata (
-		id      INTEGER PRIMARY KEY,
-		file_id VARCHAR,
-		type    char(1),
-		key     VARCHAR,
-		value   BLOB,
-		FOREIGN KEY(file_id) REFERENCES filetable (id)
-	)`)
-	return
+	_, err = db.Exec(createMetadataTable)
+	if err != nil {
+		return nil, err
+	}
+	return db, nil
 }
 
-func initRouter(fs *storage.FileService, db *sql.DB) *mux.Router {
-	r := mux.NewRouter()
-	r.HandleFunc("/query/{path:.*}", NewQueryHandler(fs)).Methods("POST")
-	r.HandleFunc("/upload/{path:.*}", NewUploadHandler(fs, db)).Methods("POST")
-	r.HandleFunc("/download/{path:.*}", NewDownloadHandler(fs)).Methods("GET")
-	r.HandleFunc("/catalog", NewCatalogDumpHandler(db)).Methods("GET")
-	r.HandleFunc("/delete/{path:.*}", NewDeleteHandler(fs, db)).Methods("DELETE")
-	return r
-}
-
-//go:generate msgp
 type Query struct {
-	Variable    string               `json:"variable"`
-	Coordinates []storage.Coordinate `json:"coordinates"`
+	Variable    string              `json:"variable"`
+	Coordinates []netcdf.Coordinate `json:"coordinates"`
 }
 
-type Result struct {
-	Type  string `json:"type"`
-	Value []byte `json:"value"`
-}
-
-func NewDeleteHandler(fs *storage.FileService, db *sql.DB) http.HandlerFunc {
+func queryHandler(s *storage.Storage) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		vars := mux.Vars(r)
 		path := vars["path"]
-		err := fs.DeleteFile(path, db)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-		} else {
-			w.WriteHeader(http.StatusOK)
-		}
-	}
-}
 
-func NewQueryHandler(fs *storage.FileService) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		vars := mux.Vars(r)
-		path := vars["path"]
 		var q Query
 		err := json.NewDecoder(r.Body).Decode(&q)
-		//err := q.DecodeMsg(msgp.NewReader(r.Body))
+
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
-		vals, tp, err := storage.Extract(filepath.Join(fs.Dir, storage.Resolve(path)), q.Variable, q.Coordinates)
+
+		f := s.Resolve(path)
+		res, err := netcdf.Lookup(f, q.Variable, q.Coordinates)
+
 		if err == nil {
-			res := Result{tp, vals}
-			json.NewEncoder(w).Encode(&res)
-			//res.EncodeMsg(msgp.NewWriter(w))
+			json.NewEncoder(w).Encode(res)
 		} else {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 	}
 }
 
-type CatalogEntry struct {
-	Path  string `json:"path"`
-	Type  string `json:"type"`
-	Key   string `json:"key"`
-	Value string `json:"value"`
-}
-
-func NewCatalogDumpHandler(db *sql.DB) http.HandlerFunc {
+func metadataDumpHandler(db *sql.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		res, err := db.Query("SELECT DISTINCT virt_path, type, key, value FROM filetable f JOIN metadata m ON f.id = m.file_id")
-		if err != nil {
-			log.Println(err)
-		}
-		defer res.Close()
-		var cs []CatalogEntry
-		for res.Next() {
-			var ce CatalogEntry
-			err = res.Scan(&ce.Path, &ce.Type, &ce.Key, &ce.Value)
-			if err != nil {
-				log.Println(err)
-				break
-			}
-			cs = append(cs, ce)
-		}
-		js, err := json.Marshal(cs)
+		mes, err := netcdf.DumpMetadata(db)
+
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
 		}
+
+		js, err := json.Marshal(mes)
+
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
 		w.Header().Set("content-type", "application/json")
 		w.Write(js)
 	}
 }
 
-func NewDownloadHandler(fs *storage.FileService) http.HandlerFunc {
+func downloadHandler(s *storage.Storage) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		vars := mux.Vars(r)
 		path := vars["path"]
-		rd, err := fs.Read(path)
-		defer rd.Close()
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-		} else {
-			io.Copy(w, rd)
-			w.WriteHeader(http.StatusOK)
-		}
+		s.Read(path, w)
 	}
 }
 
-func NewUploadHandler(fs *storage.FileService, db *sql.DB) http.HandlerFunc {
+func uploadHandler(s *storage.Storage) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		vars := mux.Vars(r)
 		path := vars["path"]
-		err := fs.Save(r.Body, path, db, storage.NetcdfFileHandler)
-		r.Body.Close()
+		err := s.Save(path, r.Body)
+		defer r.Body.Close()
 		if err != nil {
-			log.Println(err)
-			w.WriteHeader(http.StatusConflict)
+			http.Error(w, err.Error(), http.StatusConflict)
 		} else {
 			w.WriteHeader(http.StatusAccepted)
 		}
 	}
 }
 
+func deleteHandler(s *storage.Storage) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		vars := mux.Vars(r)
+		path := vars["path"]
+		err := s.Delete(path)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		} else {
+			w.WriteHeader(http.StatusOK)
+		}
+	}
+}
+
+func newRouter(s *storage.Storage, db *sql.DB) *mux.Router {
+	r := mux.NewRouter()
+	r.HandleFunc("/download/{path:.*}", downloadHandler(s)).Methods("GET")
+	r.HandleFunc("/upload/{path:.*}", uploadHandler(s)).Methods("POST")
+	r.HandleFunc("/delete/{path:.*}", deleteHandler(s)).Methods("DELETE")
+	r.HandleFunc("/query/{path:.*}", queryHandler(s)).Methods("POST")
+	r.HandleFunc("/catalog", metadataDumpHandler(db)).Methods("GET")
+	return r
+}
+
+func registerHandlers(s *storage.Storage, db *sql.DB) {
+	ufq, _ := db.Prepare(upsertFile)
+	cmq, _ := db.Prepare(cleanMetadata)
+	imq, _ := db.Prepare(insertMetadata)
+	dfq, _ := db.Prepare(deleteFile)
+
+	s.On(storage.Save, func(e storage.Event) error {
+		_, err := cmq.Exec(e.File.ID)
+		return err
+	})
+	s.On(storage.Save, func(e storage.Event) error {
+		_, err := ufq.Exec(e.File.VirtualPath, e.File.ID)
+		return err
+	})
+	s.On(storage.Save, func(e storage.Event) error {
+		mr, err := netcdf.NewMetadataRequest(e.File)
+
+		if err != nil {
+			return err
+		}
+
+		tx, err := db.Begin()
+		defer tx.Rollback()
+
+		if err != nil {
+			return err
+		}
+
+		tximq := tx.Stmt(imq)
+		defer tximq.Close()
+
+		err = mr.Insert(tximq)
+
+		if err != nil {
+			return err
+		}
+
+		return tx.Commit()
+	})
+
+	s.On(storage.Delete, func(e storage.Event) error {
+		_, err := cmq.Exec(e.File.ID)
+		return err
+	})
+	s.On(storage.Delete, func(e storage.Event) error {
+		_, err := dfq.Exec(e.File.VirtualPath)
+		return err
+	})
+}
+
 func main() {
-	db, err := initSQLite()
+	db, err := createDB("storage.db")
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer db.Close()
-	fs, _ := storage.NewFileService("files")
-	r := initRouter(fs, db)
-	n := negroni.Classic()
-	n.UseHandler(r)
-	//log.Fatal(http.ListenAndServe(":8000", n))
-	server := &http.Server{Handler:  n}
-	l, err := net.Listen("tcp4",  ":8000")
+
+	cfg := storage.StorageConfig{
+		Dir: "files",
+	}
+	s, err := storage.NewStorage(cfg)
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	registerHandlers(s, db)
+
+	r := newRouter(s, db)
+
+	n := negroni.Classic()
+
+	n.UseHandler(r)
+
+	serve(n, ":8000")
+}
+
+func serve(h http.Handler, addr string) {
+	server := &http.Server{Handler: h}
+	l, err := net.Listen("tcp4", addr)
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	log.Fatal(server.Serve(l))
 }
