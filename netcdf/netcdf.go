@@ -166,6 +166,16 @@ func getSlice(v netcdf.Var, offsets []int, lens []int) (*Result, error) {
 			return nil, err
 		}
 		return &Result{"DOUBLE", buf.Bytes()}, nil
+	case netcdf.CHAR:
+		data := make([]byte, total)
+		err = v.ReadArrayBytes(offsets, lens, data)
+		if err != nil {
+			return nil, err
+		}
+		if err != nil {
+			return nil, err
+		}
+		return &Result{"CHAR", data}, nil
 	}
 
 	return nil, fmt.Errorf("Type mismatch: %v", t)
