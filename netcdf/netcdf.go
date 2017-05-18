@@ -11,6 +11,13 @@ import (
 	"github.com/hatelikeme/storage/file"
 )
 
+// #include <netcdf.h>
+import "C"
+
+const (
+	INT64 netcdf.Type = C.NC_INT64
+)
+
 type Coordinate struct {
 	Name  string  `json:"name"`
 	Min   float64 `json:"min"`
@@ -144,6 +151,17 @@ func getSlice(v netcdf.Var, offsets []int, lens []int) (*Result, error) {
 			return nil, err
 		}
 		return &Result{"INT", buf.Bytes()}, nil
+	case INT64:
+		data := make([]int64, total)
+		err = v.ReadArrayInt64s(offsets, lens, data)
+		if err != nil {
+			return nil, err
+		}
+		err = binary.Write(buf, binary.LittleEndian, data)
+		if err != nil {
+			return nil, err
+		}
+		return &Result{"INT64", buf.Bytes()}, nil
 	case netcdf.FLOAT:
 		data := make([]float32, total)
 		err = v.ReadArrayFloat32s(offsets, lens, data)
@@ -220,6 +238,22 @@ func indexOf(value float64, v netcdf.Var) (int, error) {
 		}
 
 		dim := int32(value)
+
+		for i, v2 := range data {
+			dif := math.Abs(float64(v2 - dim))
+			if dif < eps {
+				return i, nil
+			}
+		}
+	case INT64:
+		data := make([]int64, l)
+
+		err = v.ReadInt64s(data)
+		if err != nil {
+			return -1, err
+		}
+
+		dim := int64(value)
 
 		for i, v2 := range data {
 			dif := math.Abs(float64(v2 - dim))
