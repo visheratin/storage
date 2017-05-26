@@ -3,7 +3,6 @@ package netcdf
 import (
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 
@@ -48,6 +47,10 @@ func attrValue(a netcdf.Attr) (interface{}, error) {
 	}
 
 	switch t {
+	case netcdf.BYTE:
+		v := make([]int8, len)
+		a.ReadInt8s(v)
+		return v[0], nil
 	case netcdf.SHORT:
 		v := make([]int16, len)
 		a.ReadInt16s(v)
@@ -69,7 +72,7 @@ func attrValue(a netcdf.Attr) (interface{}, error) {
 		a.ReadFloat64s(v)
 		return v[0], nil
 	default:
-		return nil, errors.New("Type mismatch")
+		return nil, fmt.Errorf("Type mismatch %s", t)
 	}
 }
 
@@ -134,10 +137,17 @@ func extractVariableAttributes(v netcdf.Var) (map[string]interface{}, error) {
 	return attrs, nil
 }
 
-func (mc *MetadataRequest) extractVariableDimensions(v netcdf.Var) ([]Metadata, error) {
-	var mds []Metadata
+func tryGetDims(v netcdf.Var) (dims []netcdf.Dim, err error) {
+	defer func() {
+		recover()
+	}()
+	return v.Dims()
+}
 
-	dims, err := v.Dims()
+func (mc *MetadataRequest) extractVariableDimensions(v netcdf.Var) (metadata []Metadata, err error) {
+	var mds []Metadata
+	
+	dims, err := tryGetDims(v)
 
 	if err != nil {
 		return nil, err

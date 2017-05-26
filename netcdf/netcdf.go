@@ -129,6 +129,17 @@ func getSlice(v netcdf.Var, offsets []int, lens []int) (*Result, error) {
 		total *= l
 	}
 	switch t {
+	case netcdf.BYTE:
+		data := make([]int8, total)
+		err = v.ReadArrayInt8s(offsets, lens, data)
+		if err != nil {
+			return nil, err
+		}
+		err = binary.Write(buf, binary.LittleEndian, data)
+		if err != nil {
+			return nil, err
+		}
+		return &Result{"BYTE", buf.Bytes()}, nil
 	case netcdf.SHORT:
 		data := make([]int16, total)
 		err = v.ReadArrayInt16s(offsets, lens, data)
