@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"math"
 
 	"github.com/bnoon/go-netcdf/netcdf"
 	"github.com/hatelikeme/storage/file"
@@ -70,6 +71,9 @@ func attrValue(a netcdf.Attr) (interface{}, error) {
 	case netcdf.DOUBLE:
 		v := make([]float64, len)
 		a.ReadFloat64s(v)
+		if (math.IsNaN(v[0])){
+			return nil, nil
+		}
 		return v[0], nil
 	default:
 		return nil, fmt.Errorf("Type mismatch %s", t)
