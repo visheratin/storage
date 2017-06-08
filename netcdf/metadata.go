@@ -36,6 +36,9 @@ func NewMetadataRequest(f *file.File) (*MetadataRequest, error) {
 
 func attrValue(a netcdf.Attr) (interface{}, error) {
 	len, err := a.Len()
+	if len == 0{
+		return nil, nil
+	}
 
 	if err != nil {
 		return nil, err
