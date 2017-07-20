@@ -9,6 +9,7 @@ import (
 
 	"github.com/bnoon/go-netcdf/netcdf"
 	"github.com/hatelikeme/storage/file"
+	"errors"
 )
 
 type Coordinate struct {
@@ -83,7 +84,14 @@ outer:
 	return offsets, lens, nil
 }
 
-func Lookup(f file.File, varname string, coords []Coordinate) (*Result, error) {
+func Lookup(f file.File, varname string, coords []Coordinate) (res *Result, err error) {
+	defer func(){
+		if r:=recover(); r != nil{
+			log.Println("recovered")
+			err = errors.New("Netcdf lookup paniced")
+			res = nil
+		}
+	}()
 	df, err := netcdf.OpenFile(f.RealPath, netcdf.NOWRITE)
 	defer df.Close()
 	if err != nil {
@@ -102,7 +110,7 @@ func Lookup(f file.File, varname string, coords []Coordinate) (*Result, error) {
 
 	log.Println(offsets, lens)
 
-	res, err := getSlice(v, offsets, lens)
+	res, err = getSlice(v, offsets, lens)
 	if err != nil {
 		return nil, err
 	}
