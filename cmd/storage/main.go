@@ -69,7 +69,14 @@ func queryHandler(s *storage.Storage) http.HandlerFunc {
 		}
 
 		f := s.Resolve(path)
-		res, err := netcdf.Lookup(f, q.Variable, q.Coordinates)
+
+		res := *netcdf.Result{}
+		for i := 0; i < 5; i++ {
+			res, err = netcdf.Lookup(f, q.Variable, q.Coordinates)
+			if err == nil {
+				break
+			}
+		}
 
 		if err == nil {
 			json.NewEncoder(w).Encode(res)
