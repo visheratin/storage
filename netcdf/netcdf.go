@@ -233,7 +233,7 @@ func indexOf(value float64, v netcdf.Var) (i int, err error) {
 		if r:=recover(); r != nil{
 			log.Println("recovered")
 			err = errors.New("Netcdf indexOf paniced")
-			i = nil
+			i = 0
 		}
 	}()
 	tp, err := v.Type()
@@ -328,6 +328,5 @@ func indexOf(value float64, v netcdf.Var) (i int, err error) {
 			}
 		}
 	}
-
 	return -1, fmt.Errorf("Value not found: %v", value)
 }
