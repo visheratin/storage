@@ -113,11 +113,10 @@ func newRouter(s *storage.Storage) *mux.Router {
 }
 
 func main() {
-	flag.Parse()
-
 	dataDir := flag.String("datadir", "./data", "Defaults to ./data")
 	dbFile := flag.String("dbfile", "storage.db", "Defaults to storage.db")
 	rewatch := flag.Bool("rewatch", false, "Default to false")
+	flag.Parse()
 
 	db, err := initDB(*dbFile)
 	if err != nil {
