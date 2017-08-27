@@ -1,60 +1,60 @@
 package file
 
 import (
-	"crypto/md5"
-	"encoding/hex"
 	"io"
 	"os"
 	"path/filepath"
+
+	"github.com/hatelikeme/storage/watcher"
 )
 
-type File struct {
-	VirtualPath string
-	RealPath    string
-	ID          string
-}
-
 type FileService struct {
-	Dir string
+	Dir     string
+	Watcher *watcher.Watcher
 }
 
-func NewFileService(dir string) (*FileService, error) {
-	err := os.MkdirAll(dir, os.ModePerm)
+type File struct {
+	RelPath  string
+	FullPath string
+}
+
+func NewFileService(dir string) *FileService {
+	w := watcher.NewWatcher(dir)
+
+	fs := &FileService{dir, w}
+
+	return fs
+}
+
+func (fs *FileService) Start() {
+	go fs.Watcher.Start()
+}
+
+func (fs *FileService) Stop() {
+	fs.Watcher.Stop()
+}
+
+func (fs *FileService) FromRelPath(path string) *File {
+	fp := filepath.Join(fs.Dir, path)
+	return &File{path, fp}
+}
+
+func (fs *FileService) FromFullPath(path string) (*File, error) {
+	rp, err := filepath.Rel(fs.Dir, path)
+
 	if err != nil {
 		return nil, err
 	}
-	fs := &FileService{dir}
-	return fs, nil
-}
 
-func (fs *FileService) Resolve(path string) File {
-	hasher := md5.New()
-	hasher.Write([]byte(path))
-	h := hex.EncodeToString(hasher.Sum(nil))
-	fp := filepath.Join(fs.Dir, h)
-	return File{path, fp, h}
-}
-
-func (fs *FileService) Save(f *File, r io.Reader) error {
-	fl, err := os.Create(f.RealPath)
-	if err != nil {
-		return err
-	}
-	defer fl.Close()
-	_, err = io.Copy(fl, r)
-	return err
+	return &File{rp, path}, nil
 }
 
 func (fs *FileService) Read(f *File, w io.Writer) error {
-	fl, err := os.Open(f.RealPath)
+	fl, err := os.Open(f.FullPath)
 	if err != nil {
 		return err
 	}
 	defer fl.Close()
 	_, err = io.Copy(w, fl)
 	return err
-}
-
-func (fs *FileService) Delete(f *File) error {
-	return os.Remove(f.RealPath)
 }
