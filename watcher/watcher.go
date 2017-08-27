@@ -33,18 +33,20 @@ func NewWatcher(dir string) *Watcher {
 	}
 }
 
-func (w *Watcher) Start() {
+func (w *Watcher) Start(rewatch bool) {
 	go w.w.Start(1 * time.Second)
-	w.Watch()
+	w.Watch(rewatch)
 }
 
-func (w *Watcher) Watch() {
+func (w *Watcher) Watch(rewatch bool) {
 	log.Print("Watching: ", w.Dir)
 
-	for k, v := range w.w.WatchedFiles() {
-		if !v.IsDir() {
-			w.Events <- WatcherEvent{k, watcher.Remove}
-			w.Events <- WatcherEvent{k, watcher.Create}
+	if rewatch {
+		for k, v := range w.w.WatchedFiles() {
+			if !v.IsDir() {
+				w.Events <- WatcherEvent{k, watcher.Remove}
+				w.Events <- WatcherEvent{k, watcher.Create}
+			}
 		}
 	}
 

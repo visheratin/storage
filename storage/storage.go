@@ -29,8 +29,8 @@ func New(dir string, db *sql.DB) *Storage {
 	return &Storage{file.NewFileService(d), db, make(chan bool)}
 }
 
-func (s *Storage) Start() {
-	s.fs.Start()
+func (s *Storage) Start(rewatch bool) {
+	s.fs.Start(rewatch)
 	go s.listen()
 }
 

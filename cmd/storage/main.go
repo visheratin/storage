@@ -117,6 +117,7 @@ func main() {
 
 	dataDir := flag.String("datadir", "./data", "Defaults to ./data")
 	dbFile := flag.String("dbfile", "storage.db", "Defaults to storage.db")
+	rewatch := flag.Bool("rewatch", false, "Default to false")
 
 	db, err := initDB(*dbFile)
 	if err != nil {
@@ -134,7 +135,7 @@ func main() {
 
 	s := storage.New(*dataDir, db)
 
-	s.Start()
+	s.Start(*rewatch)
 	defer s.Stop()
 
 	log.Print("Initialized storage for ", *dataDir)

@@ -26,8 +26,8 @@ func NewFileService(dir string) *FileService {
 	return fs
 }
 
-func (fs *FileService) Start() {
-	go fs.Watcher.Start()
+func (fs *FileService) Start(rewatch bool) {
+	go fs.Watcher.Start(rewatch)
 }
 
 func (fs *FileService) Stop() {
