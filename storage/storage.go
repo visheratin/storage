@@ -53,7 +53,7 @@ func (s *Storage) listen() {
 					log.Fatal(err)
 				}
 
-				go s.insertMetadata(f)
+				s.insertMetadata(f)
 			case watcher.Remove:
 				f, err := s.fs.FromFullPath(e.FullPath)
 
@@ -66,10 +66,8 @@ func (s *Storage) listen() {
 				tks := strings.Split(e.FullPath, " -> ")
 				rm, _ := s.fs.FromFullPath(tks[0])
 				cr, _ := s.fs.FromFullPath(tks[1])
-				go func() {
-					s.cleanMetadata(rm)
-					s.insertMetadata(cr)
-				}()
+				s.cleanMetadata(rm)
+				s.insertMetadata(cr)
 			}
 		case <-s.stopped:
 			return
