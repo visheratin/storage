@@ -27,6 +27,7 @@ const createMetadataTableQuery = `CREATE TABLE IF NOT EXISTS metadata (
 
 func initDB(name string) (*sql.DB, error) {
 	db, err := sql.Open("sqlite3", fmt.Sprintf("file:%s?cache=shared&mode=rwc", name))
+	db.Exec("PRAGMA journal_mode=WAL")
 
 	if err != nil {
 		return nil, err

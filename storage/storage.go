@@ -26,7 +26,11 @@ func New(dir string, db *sql.DB) *Storage {
 		log.Fatal(err)
 	}
 
-	return &Storage{file.NewFileService(d), db, make(chan bool)}
+	return &Storage{
+		fs:      file.NewFileService(d),
+		db:      db,
+		stopped: make(chan bool),
+	}
 }
 
 func (s *Storage) Start(rewatch bool) {
@@ -43,7 +47,7 @@ func (s *Storage) listen() {
 	for {
 		select {
 		case e := <-s.fs.Watcher.Events:
-			log.Print("Got event: ", e)
+			log.Printf("%s: %s\n", e.Op, e.FullPath)
 
 			switch e.Op {
 			case watcher.Create:

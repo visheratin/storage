@@ -1,6 +1,7 @@
 package watcher
 
 import (
+	"fmt"
 	"log"
 	"time"
 
@@ -29,7 +30,7 @@ func NewWatcher(dir string) *Watcher {
 	return &Watcher{
 		Dir:    dir,
 		w:      w,
-		Events: make(chan WatcherEvent, 256),
+		Events: make(chan WatcherEvent),
 	}
 }
 
@@ -44,8 +45,7 @@ func (w *Watcher) Watch(rewatch bool) {
 	if rewatch {
 		for k, v := range w.w.WatchedFiles() {
 			if !v.IsDir() {
-				w.Events <- WatcherEvent{k, watcher.Remove}
-				w.Events <- WatcherEvent{k, watcher.Create}
+				w.Events <- WatcherEvent{fmt.Sprintf("%s -> %s", k, k), watcher.Rename}
 			}
 		}
 	}
