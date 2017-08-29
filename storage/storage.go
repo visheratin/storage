@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/hatelikeme/storage/file"
+	"github.com/hatelikeme/storage/workerpool"
 	"github.com/radovskyb/watcher"
 
 	"github.com/hatelikeme/storage/netcdf"
@@ -17,6 +18,7 @@ type Storage struct {
 	fs      *file.FileService
 	db      *sql.DB
 	stopped chan bool
+	wp      *workerpool.WorkerPool
 }
 
 func New(dir string, db *sql.DB) *Storage {
@@ -30,6 +32,7 @@ func New(dir string, db *sql.DB) *Storage {
 		fs:      file.NewFileService(d),
 		db:      db,
 		stopped: make(chan bool),
+		wp:      workerpool.New(8),
 	}
 }
 
@@ -47,7 +50,7 @@ func (s *Storage) listen() {
 	for {
 		select {
 		case e := <-s.fs.Watcher.Events:
-			log.Printf("%s: %s\n", e.Op, e.FullPath)
+			log.Printf("[%s] %s\n", e.Op, e.FullPath)
 
 			switch e.Op {
 			case watcher.Create:
@@ -57,7 +60,9 @@ func (s *Storage) listen() {
 					log.Println(err)
 				}
 
-				go s.insertMetadata(f)
+				s.wp.Submit(func() error {
+					return s.insertMetadata(f)
+				})
 			case watcher.Remove:
 				f, err := s.fs.FromFullPath(e.FullPath)
 
@@ -65,16 +70,22 @@ func (s *Storage) listen() {
 					log.Println(err)
 				}
 
-				go s.cleanMetadata(f)
+				s.wp.Submit(func() error {
+					return s.cleanMetadata(f)
+				})
 			case watcher.Rename:
 				tks := strings.Split(e.FullPath, " -> ")
 				rm, _ := s.fs.FromFullPath(tks[0])
 				cr, _ := s.fs.FromFullPath(tks[1])
-				go func() {
-					s.cleanMetadata(rm)
-					s.insertMetadata(cr)
-				}()
+				s.wp.Submit(func() error {
+					return s.cleanMetadata(rm)
+				})
+				s.wp.Submit(func() error {
+					return s.insertMetadata(cr)
+				})
 			}
+		case err := <-s.wp.Errors:
+			log.Println(err)
 		case <-s.stopped:
 			return
 		}
