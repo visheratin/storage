@@ -54,7 +54,7 @@ func (s *Storage) listen() {
 				f, err := s.fs.FromFullPath(e.FullPath)
 
 				if err != nil {
-					log.Fatal(err)
+					log.Println(err)
 				}
 
 				go s.insertMetadata(f)
@@ -62,7 +62,7 @@ func (s *Storage) listen() {
 				f, err := s.fs.FromFullPath(e.FullPath)
 
 				if err != nil {
-					log.Fatal(err)
+					log.Println(err)
 				}
 
 				go s.cleanMetadata(f)
