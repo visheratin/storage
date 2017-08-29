@@ -115,7 +115,8 @@ func newRouter(s *storage.Storage) *mux.Router {
 func main() {
 	dataDir := flag.String("datadir", "./data", "Defaults to ./data")
 	dbFile := flag.String("dbfile", "storage.db", "Defaults to storage.db")
-	rewatch := flag.Bool("rewatch", false, "Default to false")
+	rewatch := flag.Bool("rewatch", false, "Defaults to false")
+	port := flag.Int("port", 8000, "Defaults to 8000")
 	flag.Parse()
 
 	db, err := initDB(*dbFile)
@@ -145,8 +146,8 @@ func main() {
 
 	n.UseHandler(r)
 
-	log.Print("Serving queries at port: ", 8000)
-	serve(n, ":8000")
+	log.Print("Serving queries at port: ", *port)
+	serve(n, fmt.Sprintf(":%v", *port))
 }
 
 func serve(h http.Handler, addr string) {
