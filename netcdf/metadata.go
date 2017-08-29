@@ -2,6 +2,7 @@ package netcdf
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -243,15 +244,20 @@ func extractVariables(path string, ds netcdf.Dataset) ([]Metadata, error) {
 	return mds, nil
 }
 
-func ExtractMetadata(f *file.File) ([]Metadata, error) {
+func ExtractMetadata(f *file.File) (mds []Metadata, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = errors.New("NetCDF Lookup paniced for file " + f.FullPath)
+			mds = nil
+		}
+	}()
+
 	ds, err := netcdf.OpenFile(f.FullPath, netcdf.NOWRITE)
 	defer ds.Close()
 
 	if err != nil {
 		return nil, err
 	}
-
-	var mds []Metadata
 
 	gamds, err := extractGlobalAttributes(f.RelPath, ds)
 

@@ -97,13 +97,14 @@ outer:
 func Lookup(f *file.File, varname string, coords []Coordinate) (res *Result, err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			err = errors.New("NetCDF Lookup paniced")
+			err = errors.New("NetCDF Lookup paniced for file " + f.FullPath)
 			res = nil
 		}
 	}()
 
 	df, err := netcdf.OpenFile(f.FullPath, netcdf.NOWRITE)
 	defer df.Close()
+
 	if err != nil {
 		return nil, err
 	}
