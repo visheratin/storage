@@ -4,8 +4,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"math"
+	"strings"
 
 	"github.com/bnoon/go-netcdf/netcdf"
 	"github.com/hatelikeme/storage/file"
@@ -23,10 +23,10 @@ type MetadataRequest struct {
 }
 
 type Metadata struct {
-	FileID string
-	Type   string
-	Key    string
-	Value  interface{}
+	Path  string
+	Type  string
+	Key   string
+	Value interface{}
 }
 
 func NewMetadataRequest(f *file.File) (*MetadataRequest, error) {
@@ -36,7 +36,7 @@ func NewMetadataRequest(f *file.File) (*MetadataRequest, error) {
 
 func attrValue(a netcdf.Attr) (interface{}, error) {
 	len, err := a.Len()
-	if len == 0{
+	if len == 0 {
 		return nil, nil
 	}
 
@@ -74,7 +74,7 @@ func attrValue(a netcdf.Attr) (interface{}, error) {
 	case netcdf.DOUBLE:
 		v := make([]float64, len)
 		a.ReadFloat64s(v)
-		if (math.IsNaN(v[0])){
+		if math.IsNaN(v[0]) {
 			return nil, nil
 		}
 		return v[0], nil
@@ -106,10 +106,10 @@ func (mr *MetadataRequest) extractGlobalAttributes(ds netcdf.Dataset) ([]Metadat
 		}
 
 		md := Metadata{
-			FileID: mr.File.ID,
-			Type:   ATTR,
-			Key:    a.Name(),
-			Value:  av,
+			Path:  mr.File.Path,
+			Type:  ATTR,
+			Key:   a.Name(),
+			Value: av,
 		}
 
 		mds = append(mds, md)
@@ -153,7 +153,7 @@ func tryGetDims(v netcdf.Var) (dims []netcdf.Dim, err error) {
 
 func (mc *MetadataRequest) extractVariableDimensions(v netcdf.Var) (metadata []Metadata, err error) {
 	var mds []Metadata
-	
+
 	dims, err := tryGetDims(v)
 
 	if err != nil {
@@ -174,10 +174,10 @@ func (mc *MetadataRequest) extractVariableDimensions(v netcdf.Var) (metadata []M
 		}
 
 		md := Metadata{
-			FileID: mc.File.ID,
-			Type:   DIM,
-			Key:    n,
-			Value:  fmt.Sprintf("%v", l),
+			Path:  mc.File.Path,
+			Type:  DIM,
+			Key:   n,
+			Value: fmt.Sprintf("%v", l),
 		}
 
 		mds = append(mds, md)
@@ -226,10 +226,10 @@ func (mc *MetadataRequest) extractVariables(ds netcdf.Dataset) ([]Metadata, erro
 		}
 
 		vmd := Metadata{
-			FileID: mc.File.ID,
-			Type:   VAR,
-			Key:    name,
-			Value:  joinKeys(dmds, " "),
+			Path:  mc.File.Path,
+			Type:  VAR,
+			Key:   name,
+			Value: joinKeys(dmds, " "),
 		}
 
 		ajs, err := json.Marshal(attrs)
@@ -239,10 +239,10 @@ func (mc *MetadataRequest) extractVariables(ds netcdf.Dataset) ([]Metadata, erro
 		}
 
 		vamd := Metadata{
-			FileID: mc.File.ID,
-			Type:   VARATTR,
-			Key:    name,
-			Value:  ajs,
+			Path:  mc.File.Path,
+			Type:  VARATTR,
+			Key:   name,
+			Value: ajs,
 		}
 
 		mds = append(mds, vmd, vamd)
@@ -253,7 +253,7 @@ func (mc *MetadataRequest) extractVariables(ds netcdf.Dataset) ([]Metadata, erro
 }
 
 func (mr *MetadataRequest) Insert(stmt *sql.Stmt) (err error) {
-	ds, err := netcdf.OpenFile(mr.File.RealPath, netcdf.NOWRITE)
+	ds, err := netcdf.OpenFile(mr.File.FullPath, netcdf.NOWRITE)
 	defer ds.Close()
 
 	if err != nil {
@@ -288,7 +288,7 @@ type MetadataEntry struct {
 	Value string `json:"value"`
 }
 
-const allMetadataQuery = "SELECT DISTINCT virt_path, type, key, value FROM files f JOIN metadata m ON f.id = m.file_id"
+const allMetadataQuery = "SELECT DISTINCT path, type, key, value FROM metadata"
 
 func DumpMetadata(db *sql.DB) ([]MetadataEntry, error) {
 	res, err := db.Query(allMetadataQuery)
@@ -318,7 +318,7 @@ func DumpMetadata(db *sql.DB) ([]MetadataEntry, error) {
 func insertMetadata(mds []Metadata, stmt *sql.Stmt) error {
 	for _, md := range mds {
 		_, err := stmt.Exec(
-			md.FileID,
+			md.Path,
 			md.Type,
 			md.Key,
 			md.Value)

@@ -1,17 +1,14 @@
 package file
 
 import (
-	"crypto/md5"
-	"encoding/hex"
 	"io"
 	"os"
 	"path/filepath"
 )
 
 type File struct {
-	VirtualPath string
-	RealPath    string
-	ID          string
+	Path     string
+	FullPath string
 }
 
 type FileService struct {
@@ -28,15 +25,16 @@ func NewFileService(dir string) (*FileService, error) {
 }
 
 func (fs *FileService) Resolve(path string) File {
-	hasher := md5.New()
-	hasher.Write([]byte(path))
-	h := hex.EncodeToString(hasher.Sum(nil))
-	fp := filepath.Join(fs.Dir, h)
-	return File{path, fp, h}
+	fp := filepath.Join(fs.Dir, path)
+	return File{path, fp}
 }
 
 func (fs *FileService) Save(f *File, r io.Reader) error {
-	fl, err := os.Create(f.RealPath)
+	err := os.MkdirAll(filepath.Dir(f.FullPath), os.ModePerm)
+	if err != nil {
+		return err
+	}
+	fl, err := os.Create(f.FullPath)
 	if err != nil {
 		return err
 	}
@@ -46,7 +44,7 @@ func (fs *FileService) Save(f *File, r io.Reader) error {
 }
 
 func (fs *FileService) Read(f *File, w io.Writer) error {
-	fl, err := os.Open(f.RealPath)
+	fl, err := os.Open(f.FullPath)
 	if err != nil {
 		return err
 	}
@@ -56,5 +54,5 @@ func (fs *FileService) Read(f *File, w io.Writer) error {
 }
 
 func (fs *FileService) Delete(f *File) error {
-	return os.Remove(f.RealPath)
+	return os.Remove(f.FullPath)
 }

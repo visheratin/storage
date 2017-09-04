@@ -7,9 +7,10 @@ import (
 	"log"
 	"math"
 
+	"errors"
+
 	"github.com/bnoon/go-netcdf/netcdf"
 	"github.com/hatelikeme/storage/file"
-	"errors"
 )
 
 type Coordinate struct {
@@ -25,8 +26,8 @@ type Result struct {
 }
 
 func offsetsWithLengths(df netcdf.Dataset, coords []Coordinate, v netcdf.Var) (offsets []int, lens []int, err error) {
-	defer func(){
-		if r:=recover(); r != nil{
+	defer func() {
+		if r := recover(); r != nil {
 			log.Println("recovered")
 			err = errors.New("Netcdf offsets with lengths paniced")
 			offsets = nil
@@ -93,14 +94,14 @@ outer:
 }
 
 func Lookup(f file.File, varname string, coords []Coordinate) (res *Result, err error) {
-	defer func(){
-		if r:=recover(); r != nil{
+	defer func() {
+		if r := recover(); r != nil {
 			log.Println("recovered")
 			err = errors.New("Netcdf lookup paniced")
 			res = nil
 		}
 	}()
-	df, err := netcdf.OpenFile(f.RealPath, netcdf.NOWRITE)
+	df, err := netcdf.OpenFile(f.FullPath, netcdf.NOWRITE)
 	defer df.Close()
 	if err != nil {
 		return nil, err
@@ -126,8 +127,8 @@ func Lookup(f file.File, varname string, coords []Coordinate) (res *Result, err 
 }
 
 func getSlice(v netcdf.Var, offsets []int, lens []int) (res *Result, err error) {
-	defer func(){
-		if r:=recover(); r != nil{
+	defer func() {
+		if r := recover(); r != nil {
 			log.Println("recovered")
 			err = errors.New("Netcdf getSlice paniced")
 			res = nil
@@ -229,8 +230,8 @@ func getSlice(v netcdf.Var, offsets []int, lens []int) (res *Result, err error) 
 const eps = 1e-15
 
 func indexOf(value float64, v netcdf.Var) (i int, err error) {
-	defer func(){
-		if r:=recover(); r != nil{
+	defer func() {
+		if r := recover(); r != nil {
 			log.Println("recovered")
 			err = errors.New("Netcdf indexOf paniced")
 			i = 0

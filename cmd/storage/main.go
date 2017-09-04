@@ -3,6 +3,7 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"log"
 	"net"
@@ -15,32 +16,20 @@ import (
 	"github.com/urfave/negroni"
 )
 
-const createFilesTable = `CREATE TABLE IF NOT EXISTS files (
-	virt_path VARCHAR PRIMARY KEY,
-	id VARCHAR
-)`
-
 const createMetadataTable = `CREATE TABLE IF NOT EXISTS metadata (
-	id      INTEGER PRIMARY KEY,
-	file_id VARCHAR,
+	id INTEGER PRIMARY KEY,
+	path    VARCHAR,
 	type    VARCHAR,
 	key     VARCHAR,
-	value   BLOB,
-	FOREIGN KEY(file_id) REFERENCES filetable (id)
+	value   BLOB
 )`
 
-const upsertFile = "INSERT OR REPLACE INTO files (virt_path, id) VALUES (?, ?)"
-const insertMetadata = "INSERT INTO metadata (file_id, type, key, value) VALUES (?,?,?,?)"
-const cleanMetadata = "DELETE FROM metadata WHERE file_id = ?"
-const deleteFile = "DELETE FROM files WHERE virt_path = ?"
+const insertMetadata = "INSERT INTO metadata (path, type, key, value) VALUES (?,?,?,?)"
+const cleanMetadata = "DELETE FROM metadata WHERE path = ?"
 
 func createDB(name string) (*sql.DB, error) {
 	db, err := sql.Open("sqlite3", fmt.Sprintf("file:%s?cache=shared&mode=rwc", name))
 
-	if err != nil {
-		return nil, err
-	}
-	_, err = db.Exec(createFilesTable)
 	if err != nil {
 		return nil, err
 	}
@@ -70,7 +59,7 @@ func queryHandler(s *storage.Storage) http.HandlerFunc {
 
 		f := s.Resolve(path)
 
-		res := *netcdf.Result{}
+		res := &netcdf.Result{}
 		for i := 0; i < 5; i++ {
 			res, err = netcdf.Lookup(f, q.Variable, q.Coordinates)
 			if err == nil {
@@ -153,17 +142,11 @@ func newRouter(s *storage.Storage, db *sql.DB) *mux.Router {
 }
 
 func registerHandlers(s *storage.Storage, db *sql.DB) {
-	ufq, _ := db.Prepare(upsertFile)
 	cmq, _ := db.Prepare(cleanMetadata)
 	imq, _ := db.Prepare(insertMetadata)
-	dfq, _ := db.Prepare(deleteFile)
 
 	s.On(storage.Save, func(e storage.Event) error {
-		_, err := cmq.Exec(e.File.ID)
-		return err
-	})
-	s.On(storage.Save, func(e storage.Event) error {
-		_, err := ufq.Exec(e.File.VirtualPath, e.File.ID)
+		_, err := cmq.Exec(e.File.Path)
 		return err
 	})
 	s.On(storage.Save, func(e storage.Event) error {
@@ -193,16 +176,16 @@ func registerHandlers(s *storage.Storage, db *sql.DB) {
 	})
 
 	s.On(storage.Delete, func(e storage.Event) error {
-		_, err := cmq.Exec(e.File.ID)
-		return err
-	})
-	s.On(storage.Delete, func(e storage.Event) error {
-		_, err := dfq.Exec(e.File.VirtualPath)
+		_, err := cmq.Exec(e.File.Path)
 		return err
 	})
 }
 
 func main() {
+	port := flag.Int("port", 8000, "Defaults to 8000")
+
+	flag.Parse()
+
 	db, err := createDB("storage.db")
 	if err != nil {
 		log.Fatal(err)
@@ -225,7 +208,7 @@ func main() {
 
 	n.UseHandler(r)
 
-	serve(n, ":8000")
+	serve(n, fmt.Sprintf(":%v", *port))
 }
 
 func serve(h http.Handler, addr string) {
