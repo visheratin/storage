@@ -121,6 +121,7 @@ func getSlice(v netcdf.Var, offsets []int, lens []int) (res *Result, err error) 
 	}
 
 	buf := new(bytes.Buffer)
+
 	total := 1
 	for _, l := range lens {
 		total *= l

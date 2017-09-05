@@ -166,7 +166,7 @@ func extractVariableDimensions(v netcdf.Var) (metadata []Metadata, err error) {
 		md := Metadata{
 			Type:  DIM,
 			Key:   n,
-			Value: fmt.Sprintf("%v", l),
+			Value: l,
 		}
 
 		mds = append(mds, md)

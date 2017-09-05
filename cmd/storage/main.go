@@ -10,13 +10,13 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 
 	"github.com/dgraph-io/badger"
 
 	"github.com/gorilla/mux"
 	"github.com/hatelikeme/storage"
 	"github.com/hatelikeme/storage/netcdf"
-	_ "github.com/mattn/go-sqlite3"
 	"github.com/urfave/negroni"
 )
 
@@ -61,15 +61,14 @@ type CatalogEntry struct {
 	Path  string              `json:"path"`
 	Type  netcdf.MetadataType `json:"type"`
 	Key   string              `json:"key"`
-	Value string              `json:"value"`
+	Value interface{}         `json:"value"`
 }
 
 func metadataDumpHandler(kv *badger.KV) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		catalog := make([]CatalogEntry, 0)
 
 		opt := badger.DefaultIteratorOptions
-
-		var catalog []CatalogEntry
 
 		itr := kv.NewIterator(opt)
 		for itr.Rewind(); itr.Valid(); itr.Next() {
@@ -89,7 +88,7 @@ func metadataDumpHandler(kv *badger.KV) http.HandlerFunc {
 					Path:  string(key),
 					Key:   md.Key,
 					Type:  md.Type,
-					Value: fmt.Sprintf("%s", md.Value),
+					Value: md.Value,
 				}
 
 				catalog = append(catalog, e)
@@ -157,6 +156,10 @@ func newRouter(s *storage.Storage, kv *badger.KV) *mux.Router {
 
 func registerHandlers(s *storage.Storage, kv *badger.KV) {
 	s.On(storage.Save, func(e storage.Event) error {
+		log.Printf("[SAVE] %s", e.File.FullPath)
+		return nil
+	})
+	s.On(storage.Save, func(e storage.Event) error {
 		mds, err := netcdf.ExtractMetadata(e.File)
 
 		if err != nil {
@@ -183,7 +186,7 @@ func registerHandlers(s *storage.Storage, kv *badger.KV) {
 
 func main() {
 	port := flag.Int("port", 8000, "Defaults to 8000")
-	dir := flag.String("dbdir", "data", "Defaults to data")
+	dir := flag.String("dbdir", "db", "Defaults to data")
 	filedir := flag.String("filedir", "files", "Defaults to files")
 
 	flag.Parse()
@@ -205,8 +208,16 @@ func main() {
 		log.Fatal(err)
 	}
 
+	defer kv.Close()
+
+	fd, err := filepath.Abs(*filedir)
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	cfg := storage.StorageConfig{
-		Dir: *filedir,
+		Dir: fd,
 	}
 
 	s, err := storage.NewStorage(cfg)
