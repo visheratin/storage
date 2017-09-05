@@ -1,7 +1,6 @@
 package netcdf
 
 import (
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -11,27 +10,19 @@ import (
 	"github.com/hatelikeme/storage/file"
 )
 
+type MetadataType int
+
 const (
-	ATTR    = "A"
-	DIM     = "D"
-	VAR     = "V"
-	VARATTR = "VA"
+	ATTR MetadataType = iota
+	DIM
+	VAR
+	VARATTR
 )
 
-type MetadataRequest struct {
-	File *file.File
-}
-
 type Metadata struct {
-	Path  string
-	Type  string
+	Type  MetadataType
 	Key   string
 	Value interface{}
-}
-
-func NewMetadataRequest(f *file.File) (*MetadataRequest, error) {
-	mc := &MetadataRequest{f}
-	return mc, nil
 }
 
 func attrValue(a netcdf.Attr) (interface{}, error) {
@@ -83,7 +74,7 @@ func attrValue(a netcdf.Attr) (interface{}, error) {
 	}
 }
 
-func (mr *MetadataRequest) extractGlobalAttributes(ds netcdf.Dataset) ([]Metadata, error) {
+func extractGlobalAttributes(ds netcdf.Dataset) ([]Metadata, error) {
 	var mds []Metadata
 
 	ngattrs, err := ds.NAttrs()
@@ -106,7 +97,6 @@ func (mr *MetadataRequest) extractGlobalAttributes(ds netcdf.Dataset) ([]Metadat
 		}
 
 		md := Metadata{
-			Path:  mr.File.Path,
 			Type:  ATTR,
 			Key:   a.Name(),
 			Value: av,
@@ -151,7 +141,7 @@ func tryGetDims(v netcdf.Var) (dims []netcdf.Dim, err error) {
 	return v.Dims()
 }
 
-func (mc *MetadataRequest) extractVariableDimensions(v netcdf.Var) (metadata []Metadata, err error) {
+func extractVariableDimensions(v netcdf.Var) (metadata []Metadata, err error) {
 	var mds []Metadata
 
 	dims, err := tryGetDims(v)
@@ -174,7 +164,6 @@ func (mc *MetadataRequest) extractVariableDimensions(v netcdf.Var) (metadata []M
 		}
 
 		md := Metadata{
-			Path:  mc.File.Path,
 			Type:  DIM,
 			Key:   n,
 			Value: fmt.Sprintf("%v", l),
@@ -196,7 +185,7 @@ func joinKeys(mds []Metadata, sep string) (res string) {
 	return strings.Join(keys, sep)
 }
 
-func (mc *MetadataRequest) extractVariables(ds netcdf.Dataset) ([]Metadata, error) {
+func extractVariables(ds netcdf.Dataset) ([]Metadata, error) {
 	var mds []Metadata
 
 	nvars, err := ds.NVars()
@@ -213,7 +202,7 @@ func (mc *MetadataRequest) extractVariables(ds netcdf.Dataset) ([]Metadata, erro
 			return nil, err
 		}
 
-		dmds, err := mc.extractVariableDimensions(v)
+		dmds, err := extractVariableDimensions(v)
 
 		if err != nil {
 			return nil, err
@@ -226,7 +215,6 @@ func (mc *MetadataRequest) extractVariables(ds netcdf.Dataset) ([]Metadata, erro
 		}
 
 		vmd := Metadata{
-			Path:  mc.File.Path,
 			Type:  VAR,
 			Key:   name,
 			Value: joinKeys(dmds, " "),
@@ -239,7 +227,6 @@ func (mc *MetadataRequest) extractVariables(ds netcdf.Dataset) ([]Metadata, erro
 		}
 
 		vamd := Metadata{
-			Path:  mc.File.Path,
 			Type:  VARATTR,
 			Key:   name,
 			Value: ajs,
@@ -252,81 +239,35 @@ func (mc *MetadataRequest) extractVariables(ds netcdf.Dataset) ([]Metadata, erro
 	return mds, nil
 }
 
-func (mr *MetadataRequest) Insert(stmt *sql.Stmt) (err error) {
-	ds, err := netcdf.OpenFile(mr.File.FullPath, netcdf.NOWRITE)
-	defer ds.Close()
-
-	if err != nil {
-		return
-	}
-
-	var mds []Metadata
-
-	gamds, err := mr.extractGlobalAttributes(ds)
-
-	if err != nil {
-		return
-	}
-
-	mds = append(mds, gamds...)
-
-	vmds, err := mr.extractVariables(ds)
-
-	if err != nil {
-		return
-	}
-
-	mds = append(mds, vmds...)
-
-	return insertMetadata(mds, stmt)
-}
-
-type MetadataEntry struct {
-	Path  string `json:"path"`
-	Type  string `json:"type"`
-	Key   string `json:"key"`
-	Value string `json:"value"`
-}
-
-const allMetadataQuery = "SELECT DISTINCT path, type, key, value FROM metadata"
-
-func DumpMetadata(db *sql.DB) ([]MetadataEntry, error) {
-	res, err := db.Query(allMetadataQuery)
-	defer res.Close()
+func ExtractMetadata(file *file.File) (mds []Metadata, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("Netcdf Lookup paniced: %s", r)
+			mds = nil
+		}
+	}()
+	ds, err := netcdf.OpenFile(file.FullPath, netcdf.NOWRITE)
 
 	if err != nil {
 		return nil, err
 	}
 
-	var es []MetadataEntry
+	defer ds.Close()
 
-	for res.Next() {
-		var e MetadataEntry
+	gamds, err := extractGlobalAttributes(ds)
 
-		err = res.Scan(&e.Path, &e.Type, &e.Key, &e.Value)
-
-		if err != nil {
-			return nil, err
-		}
-
-		es = append(es, e)
+	if err != nil {
+		return nil, err
 	}
 
-	return es, nil
-}
+	vmds, err := extractVariables(ds)
 
-func insertMetadata(mds []Metadata, stmt *sql.Stmt) error {
-	for _, md := range mds {
-		_, err := stmt.Exec(
-			md.Path,
-			md.Type,
-			md.Key,
-			md.Value)
-
-		if err != nil {
-			return err
-		}
+	if err != nil {
+		return nil, err
 	}
 
-	return nil
+	mds = append(mds, gamds...)
+	mds = append(mds, vmds...)
+
+	return
 }

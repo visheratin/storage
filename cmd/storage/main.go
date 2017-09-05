@@ -1,13 +1,17 @@
 package main
 
 import (
-	"database/sql"
+	"bytes"
+	"encoding/gob"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
 	"net"
 	"net/http"
+	"os"
+
+	"github.com/dgraph-io/badger"
 
 	"github.com/gorilla/mux"
 	"github.com/hatelikeme/storage"
@@ -15,30 +19,6 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/urfave/negroni"
 )
-
-const createMetadataTable = `CREATE TABLE IF NOT EXISTS metadata (
-	id INTEGER PRIMARY KEY,
-	path    VARCHAR,
-	type    VARCHAR,
-	key     VARCHAR,
-	value   BLOB
-)`
-
-const insertMetadata = "INSERT INTO metadata (path, type, key, value) VALUES (?,?,?,?)"
-const cleanMetadata = "DELETE FROM metadata WHERE path = ?"
-
-func createDB(name string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite3", fmt.Sprintf("file:%s?cache=shared&mode=rwc", name))
-
-	if err != nil {
-		return nil, err
-	}
-	_, err = db.Exec(createMetadataTable)
-	if err != nil {
-		return nil, err
-	}
-	return db, nil
-}
 
 type Query struct {
 	Variable    string              `json:"variable"`
@@ -60,8 +40,10 @@ func queryHandler(s *storage.Storage) http.HandlerFunc {
 		f := s.Resolve(path)
 
 		res := &netcdf.Result{}
+
 		for i := 0; i < 5; i++ {
 			res, err = netcdf.Lookup(f, q.Variable, q.Coordinates)
+
 			if err == nil {
 				break
 			}
@@ -75,16 +57,48 @@ func queryHandler(s *storage.Storage) http.HandlerFunc {
 	}
 }
 
-func metadataDumpHandler(db *sql.DB) http.HandlerFunc {
+type CatalogEntry struct {
+	Path  string              `json:"path"`
+	Type  netcdf.MetadataType `json:"type"`
+	Key   string              `json:"key"`
+	Value string              `json:"value"`
+}
+
+func metadataDumpHandler(kv *badger.KV) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		mes, err := netcdf.DumpMetadata(db)
 
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
+		opt := badger.DefaultIteratorOptions
+
+		var catalog []CatalogEntry
+
+		itr := kv.NewIterator(opt)
+		for itr.Rewind(); itr.Valid(); itr.Next() {
+			item := itr.Item()
+			key := item.Key()
+			val := item.Value()
+
+			var mds []netcdf.Metadata
+
+			buf := bytes.NewReader(val)
+			dec := gob.NewDecoder(buf)
+
+			dec.Decode(&mds)
+
+			for _, md := range mds {
+				e := CatalogEntry{
+					Path:  string(key),
+					Key:   md.Key,
+					Type:  md.Type,
+					Value: fmt.Sprintf("%s", md.Value),
+				}
+
+				catalog = append(catalog, e)
+			}
+
 		}
+		itr.Close()
 
-		js, err := json.Marshal(mes)
+		js, err := json.Marshal(catalog)
 
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -131,78 +145,79 @@ func deleteHandler(s *storage.Storage) http.HandlerFunc {
 	}
 }
 
-func newRouter(s *storage.Storage, db *sql.DB) *mux.Router {
+func newRouter(s *storage.Storage, kv *badger.KV) *mux.Router {
 	r := mux.NewRouter()
 	r.HandleFunc("/download/{path:.*}", downloadHandler(s)).Methods("GET")
 	r.HandleFunc("/upload/{path:.*}", uploadHandler(s)).Methods("POST")
 	r.HandleFunc("/delete/{path:.*}", deleteHandler(s)).Methods("DELETE")
 	r.HandleFunc("/query/{path:.*}", queryHandler(s)).Methods("POST")
-	r.HandleFunc("/catalog", metadataDumpHandler(db)).Methods("GET")
+	r.HandleFunc("/catalog", metadataDumpHandler(kv)).Methods("GET")
 	return r
 }
 
-func registerHandlers(s *storage.Storage, db *sql.DB) {
-	cmq, _ := db.Prepare(cleanMetadata)
-	imq, _ := db.Prepare(insertMetadata)
-
+func registerHandlers(s *storage.Storage, kv *badger.KV) {
 	s.On(storage.Save, func(e storage.Event) error {
-		_, err := cmq.Exec(e.File.Path)
-		return err
+		mds, err := netcdf.ExtractMetadata(e.File)
+
+		if err != nil {
+			return err
+		}
+
+		var buf bytes.Buffer
+		enc := gob.NewEncoder(&buf)
+
+		err = enc.Encode(mds)
+
+		if err != nil {
+			return err
+		}
+
+		kv.Set([]byte(e.File.Path), buf.Bytes(), 0x00)
+		return nil
 	})
-	s.On(storage.Save, func(e storage.Event) error {
-		mr, err := netcdf.NewMetadataRequest(e.File)
-
-		if err != nil {
-			return err
-		}
-
-		tx, err := db.Begin()
-		defer tx.Rollback()
-
-		if err != nil {
-			return err
-		}
-
-		tximq := tx.Stmt(imq)
-		defer tximq.Close()
-
-		err = mr.Insert(tximq)
-
-		if err != nil {
-			return err
-		}
-
-		return tx.Commit()
-	})
-
 	s.On(storage.Delete, func(e storage.Event) error {
-		_, err := cmq.Exec(e.File.Path)
-		return err
+		kv.Delete([]byte(e.File.Path))
+		return nil
 	})
 }
 
 func main() {
 	port := flag.Int("port", 8000, "Defaults to 8000")
+	dir := flag.String("dbdir", "data", "Defaults to data")
+	filedir := flag.String("filedir", "files", "Defaults to files")
 
 	flag.Parse()
 
-	db, err := createDB("storage.db")
+	err := os.MkdirAll(*dir, os.ModePerm)
+
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer db.Close()
+
+	opt := badger.DefaultOptions
+
+	opt.Dir = *dir
+	opt.ValueDir = *dir
+
+	kv, err := badger.NewKV(&opt)
+
+	if err != nil {
+		log.Fatal(err)
+	}
 
 	cfg := storage.StorageConfig{
-		Dir: "files",
+		Dir: *filedir,
 	}
+
 	s, err := storage.NewStorage(cfg)
+
 	if err != nil {
 		log.Fatal(err)
 	}
 
-	registerHandlers(s, db)
+	registerHandlers(s, kv)
 
-	r := newRouter(s, db)
+	r := newRouter(s, kv)
 
 	n := negroni.Classic()
 

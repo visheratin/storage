@@ -31,13 +31,17 @@ func (fs *FileService) Resolve(path string) File {
 
 func (fs *FileService) Save(f *File, r io.Reader) error {
 	err := os.MkdirAll(filepath.Dir(f.FullPath), os.ModePerm)
+
 	if err != nil {
 		return err
 	}
+
 	fl, err := os.Create(f.FullPath)
+
 	if err != nil {
 		return err
 	}
+
 	defer fl.Close()
 	_, err = io.Copy(fl, r)
 	return err

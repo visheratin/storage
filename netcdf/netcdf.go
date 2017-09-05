@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"log"
 	"math"
 
 	"errors"
@@ -26,14 +25,6 @@ type Result struct {
 }
 
 func offsetsWithLengths(df netcdf.Dataset, coords []Coordinate, v netcdf.Var) (offsets []int, lens []int, err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			log.Println("recovered")
-			err = errors.New("Netcdf offsets with lengths paniced")
-			offsets = nil
-			lens = nil
-		}
-	}()
 	dims, err := v.Dims()
 
 	if err != nil {
@@ -96,16 +87,17 @@ outer:
 func Lookup(f file.File, varname string, coords []Coordinate) (res *Result, err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Println("recovered")
-			err = errors.New("Netcdf lookup paniced")
+			err = errors.New(fmt.Sprintf("Netcdf Lookup paniced: %v", r))
 			res = nil
 		}
 	}()
 	df, err := netcdf.OpenFile(f.FullPath, netcdf.NOWRITE)
-	defer df.Close()
+
 	if err != nil {
 		return nil, err
 	}
+
+	defer df.Close()
 
 	v, err := df.Var(varname)
 	if err != nil {
@@ -113,27 +105,15 @@ func Lookup(f file.File, varname string, coords []Coordinate) (res *Result, err 
 	}
 
 	offsets, lens, err := offsetsWithLengths(df, coords, v)
+
 	if err != nil {
 		return nil, err
 	}
 
-	log.Println(offsets, lens)
-
-	res, err = getSlice(v, offsets, lens)
-	if err != nil {
-		return nil, err
-	}
-	return res, nil
+	return getSlice(v, offsets, lens)
 }
 
 func getSlice(v netcdf.Var, offsets []int, lens []int) (res *Result, err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			log.Println("recovered")
-			err = errors.New("Netcdf getSlice paniced")
-			res = nil
-		}
-	}()
 	t, err := v.Type()
 
 	if err != nil {
@@ -230,13 +210,6 @@ func getSlice(v netcdf.Var, offsets []int, lens []int) (res *Result, err error) 
 const eps = 1e-15
 
 func indexOf(value float64, v netcdf.Var) (i int, err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			log.Println("recovered")
-			err = errors.New("Netcdf indexOf paniced")
-			i = 0
-		}
-	}()
 	tp, err := v.Type()
 	if err != nil {
 		return -1, err

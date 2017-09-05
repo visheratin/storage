@@ -7,12 +7,12 @@ import (
 	"github.com/hatelikeme/storage/file"
 )
 
-type EventType string
+type EventType int
 
 const (
-	Save   EventType = "SAVE"
-	Delete EventType = "DELETE"
-	Read   EventType = "READ"
+	Save EventType = iota
+	Delete
+	Read
 )
 
 type Event struct {
@@ -51,7 +51,7 @@ func (s *Storage) On(evt EventType, h EventHandler) {
 
 	hs = append(hs, h)
 	s.handlers[evt] = hs
-	log.Printf("Added handler %v for event %s", h, evt)
+	log.Printf("Added handler %v for event %v", h, evt)
 }
 
 type EventHandler func(Event) error
