@@ -102,10 +102,10 @@ func Lookup(f file.File, varname string, coords []Coordinate) (res *Result, err 
 		}
 	}()
 	df, err := netcdf.OpenFile(f.FullPath, netcdf.NOWRITE)
-	defer df.Close()
 	if err != nil {
 		return nil, err
 	}
+	defer df.Close()
 
 	v, err := df.Var(varname)
 	if err != nil {
