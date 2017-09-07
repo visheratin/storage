@@ -96,8 +96,7 @@ outer:
 func Lookup(f file.File, varname string, coords []Coordinate) (res *Result, err error) {
 	defer func() {
 		if r := recover(); r != nil {
-			log.Println("recovered")
-			err = errors.New("Netcdf lookup paniced")
+			err = errors.New(fmt.Sprintf("Netcdf Lookup paniced: %v", r))
 			res = nil
 		}
 	}()
@@ -105,7 +104,6 @@ func Lookup(f file.File, varname string, coords []Coordinate) (res *Result, err 
 	if err != nil {
 		return nil, err
 	}
-	defer df.Close()
 
 	v, err := df.Var(varname)
 	if err != nil {
@@ -123,6 +121,8 @@ func Lookup(f file.File, varname string, coords []Coordinate) (res *Result, err 
 	if err != nil {
 		return nil, err
 	}
+
+	df.Close()
 	return res, nil
 }
 
