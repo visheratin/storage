@@ -14,6 +14,7 @@ import (
 	"github.com/hatelikeme/storage/netcdf"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/urfave/negroni"
+	"time"
 )
 
 const createMetadataTable = `CREATE TABLE IF NOT EXISTS metadata (
@@ -56,11 +57,14 @@ func queryHandler(s *storage.Storage) http.HandlerFunc {
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
-
+		rslv := time.Now().Unix()
 		f := s.Resolve(path)
+		log.Println(time.Now().Unix() - rslv, "Path resolution time")
 
+		lop := time.Now().Unix()
 		res := &netcdf.Result{}
 		res, err = netcdf.Lookup(f, q.Variable, q.Coordinates)
+		log.Println(time.Now().Unix() - lop, "Lookup time")
 
 		if err == nil {
 			json.NewEncoder(w).Encode(res)
