@@ -9,21 +9,9 @@ import (
 
 	"errors"
 
-	"github.com/bnoon/go-netcdf/netcdf"
-	"github.com/hatelikeme/storage/file"
+	"github.com/fhs/go-netcdf/netcdf"
+	"github.com/visheratin/storage/file"
 )
-
-type Coordinate struct {
-	Name  string  `json:"name"`
-	Min   float64 `json:"min"`
-	Max   float64 `json:"max"`
-	Index int     `json:"index"`
-}
-
-type Result struct {
-	Type  string `json:"type"`
-	Value []byte `json:"value"`
-}
 
 func offsetsWithLengths(df netcdf.Dataset, coords []Coordinate, v netcdf.Var) (offsets []int, lens []int, err error) {
 	defer func() {

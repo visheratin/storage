@@ -7,8 +7,8 @@ import (
 	"math"
 	"strings"
 
-	"github.com/bnoon/go-netcdf/netcdf"
-	"github.com/hatelikeme/storage/file"
+	"github.com/fhs/go-netcdf/netcdf"
+	"github.com/visheratin/storage/file"
 )
 
 const (

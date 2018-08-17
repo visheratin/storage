@@ -1,3 +1,0 @@
----
-- name: Install sqlite package
-  yum: name=sqlite state=latest

@@ -4,7 +4,7 @@ import (
 	"io"
 	"log"
 
-	"github.com/hatelikeme/storage/file"
+	"github.com/visheratin/storage/file"
 )
 
 type EventType string

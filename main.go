@@ -9,12 +9,13 @@ import (
 	"net"
 	"net/http"
 
+	"time"
+
 	"github.com/gorilla/mux"
-	"github.com/hatelikeme/storage"
-	"github.com/hatelikeme/storage/netcdf"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/urfave/negroni"
-	"time"
+	"github.com/visheratin/storage/netcdf"
+	"github.com/visheratin/storage/storage"
 )
 
 const createMetadataTable = `CREATE TABLE IF NOT EXISTS metadata (
@@ -59,12 +60,12 @@ func queryHandler(s *storage.Storage) http.HandlerFunc {
 		}
 		rslv := time.Now().Unix()
 		f := s.Resolve(path)
-		log.Println(time.Now().Unix() - rslv, "Path resolution time")
+		log.Println(time.Now().Unix()-rslv, "Path resolution time")
 
 		lop := time.Now().Unix()
 		res := &netcdf.Result{}
 		res, err = netcdf.Lookup(f, q.Variable, q.Coordinates)
-		log.Println(time.Now().Unix() - lop, "Lookup time")
+		log.Println(time.Now().Unix()-lop, "Lookup time")
 
 		if err == nil {
 			json.NewEncoder(w).Encode(res)
