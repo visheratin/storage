@@ -7,7 +7,7 @@ import (
 	"math"
 	"strings"
 
-	"github.com/fhs/go-netcdf/netcdf"
+	"github.com/bnoon/go-netcdf/netcdf"
 	"github.com/visheratin/storage/file"
 )
 

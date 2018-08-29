@@ -9,7 +9,7 @@ import (
 
 	"errors"
 
-	"github.com/fhs/go-netcdf/netcdf"
+	"github.com/bnoon/go-netcdf/netcdf"
 	"github.com/visheratin/storage/file"
 )
 
