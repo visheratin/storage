@@ -6,7 +6,6 @@ import (
 	"flag"
 	"fmt"
 	"log"
-	"net"
 	"net/http"
 
 	"time"
@@ -16,6 +15,9 @@ import (
 	"github.com/visheratin/storage/netcdf"
 	"github.com/visheratin/storage/storage"
 )
+
+var s *storage.Storage
+var db *sql.DB
 
 const createMetadataTable = `CREATE TABLE IF NOT EXISTS metadata (
 	id INTEGER PRIMARY KEY,
@@ -46,91 +48,77 @@ type Query struct {
 	Coordinates []netcdf.Coordinate `json:"coordinates"`
 }
 
-func queryHandler(s *storage.Storage) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		vars := mux.Vars(r)
-		path := vars["path"]
+func queryHandler(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	path := ps.ByName("path")
 
-		var q Query
-		err := json.NewDecoder(r.Body).Decode(&q)
+	var q Query
+	err := json.NewDecoder(r.Body).Decode(&q)
 
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-		}
-		rslv := time.Now().Unix()
-		f := s.Resolve(path)
-		log.Println(time.Now().Unix()-rslv, "Path resolution time")
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+	rslv := time.Now().Unix()
+	f := s.Resolve(path)
+	log.Println(time.Now().Unix()-rslv, "Path resolution time")
 
-		lop := time.Now().Unix()
-		res := &netcdf.Result{}
-		res, err = netcdf.Lookup(f, q.Variable, q.Coordinates)
-		log.Println(time.Now().Unix()-lop, "Lookup time")
+	lop := time.Now().Unix()
+	res := &netcdf.Result{}
+	res, err = netcdf.Lookup(f, q.Variable, q.Coordinates)
+	log.Println(time.Now().Unix()-lop, "Lookup time")
 
-		if err == nil {
-			json.NewEncoder(w).Encode(res)
-		} else {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-		}
+	if err == nil {
+		json.NewEncoder(w).Encode(res)
+	} else {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 }
 
-func metadataDumpHandler(db *sql.DB) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		mes, err := netcdf.DumpMetadata(db)
+func metadataDumpHandler(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	mes, err := netcdf.DumpMetadata(db)
 
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 
-		js, err := json.Marshal(mes)
+	js, err := json.Marshal(mes)
 
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 
-		w.Header().Set("content-type", "application/json")
-		w.Write(js)
+	w.Header().Set("content-type", "application/json")
+	w.Write(js)
+}
+
+func downloadHandler(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	path := ps.ByName("path")
+	s.Read(path, w)
+}
+
+func uploadHandler(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	path := ps.ByName("path")
+	err := s.Save(path, r.Body)
+	defer r.Body.Close()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusConflict)
+	} else {
+		w.WriteHeader(http.StatusAccepted)
 	}
 }
 
-func downloadHandler(s *storage.Storage) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		vars := mux.Vars(r)
-		path := vars["path"]
-		s.Read(path, w)
+func deleteHandler(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
+	path := ps.ByName("path")
+	err := s.Delete(path)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	} else {
+		w.WriteHeader(http.StatusOK)
 	}
 }
 
-func uploadHandler(s *storage.Storage) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		vars := mux.Vars(r)
-		path := vars["path"]
-		err := s.Save(path, r.Body)
-		defer r.Body.Close()
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusConflict)
-		} else {
-			w.WriteHeader(http.StatusAccepted)
-		}
-	}
-}
-
-func deleteHandler(s *storage.Storage) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		vars := mux.Vars(r)
-		path := vars["path"]
-		err := s.Delete(path)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-		} else {
-			w.WriteHeader(http.StatusOK)
-		}
-	}
-}
-
-func newRouter(s *storage.Storage, db *sql.DB) *mux.Router {
+func newRouter(s *storage.Storage, db *sql.DB) *httprouter.Router {
 	r := httprouter.New()
 	r.GET("/download/:path", downloadHandler)
 	r.POST("/upload/:path", uploadHandler)
@@ -181,11 +169,11 @@ func registerHandlers(s *storage.Storage, db *sql.DB) {
 }
 
 func main() {
-	port := flag.String("port", 8000, "Defaults to 8000")
+	port := flag.String("port", "8000", "Defaults to 8000")
 
 	flag.Parse()
-
-	db, err := createDB("storage.db")
+	var err error
+	db, err = createDB("storage.db")
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -194,7 +182,7 @@ func main() {
 	cfg := storage.StorageConfig{
 		Dir: "files",
 	}
-	s, err := storage.NewStorage(cfg)
+	s, err = storage.NewStorage(cfg)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -203,16 +191,5 @@ func main() {
 
 	r := newRouter(s, db)
 
-	http.ListenAndServe(":"+port, r)
-}
-
-func serve(h http.Handler, addr string) {
-	server := &http.Server{Handler: h}
-	l, err := net.Listen("tcp4", addr)
-
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	log.Fatal(server.Serve(l))
+	http.ListenAndServe(":"+*port, r)
 }
