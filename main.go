@@ -11,9 +11,8 @@ import (
 
 	"time"
 
-	"github.com/gorilla/mux"
+	"github.com/julienschmidt/httprouter"
 	_ "github.com/mattn/go-sqlite3"
-	"github.com/urfave/negroni"
 	"github.com/visheratin/storage/netcdf"
 	"github.com/visheratin/storage/storage"
 )
@@ -132,12 +131,12 @@ func deleteHandler(s *storage.Storage) http.HandlerFunc {
 }
 
 func newRouter(s *storage.Storage, db *sql.DB) *mux.Router {
-	r := mux.NewRouter()
-	r.HandleFunc("/download/{path:.*}", downloadHandler(s)).Methods("GET")
-	r.HandleFunc("/upload/{path:.*}", uploadHandler(s)).Methods("POST")
-	r.HandleFunc("/delete/{path:.*}", deleteHandler(s)).Methods("DELETE")
-	r.HandleFunc("/query/{path:.*}", queryHandler(s)).Methods("POST")
-	r.HandleFunc("/catalog", metadataDumpHandler(db)).Methods("GET")
+	r := httprouter.New()
+	r.GET("/download/:path", downloadHandler)
+	r.POST("/upload/:path", uploadHandler)
+	r.DELETE("/delete/:path", deleteHandler)
+	r.POST("/query/:path", queryHandler)
+	r.GET("/catalog", metadataDumpHandler)
 	return r
 }
 
@@ -182,7 +181,7 @@ func registerHandlers(s *storage.Storage, db *sql.DB) {
 }
 
 func main() {
-	port := flag.Int("port", 8000, "Defaults to 8000")
+	port := flag.String("port", 8000, "Defaults to 8000")
 
 	flag.Parse()
 
@@ -204,11 +203,7 @@ func main() {
 
 	r := newRouter(s, db)
 
-	n := negroni.Classic()
-
-	n.UseHandler(r)
-
-	serve(n, fmt.Sprintf(":%v", *port))
+	http.ListenAndServe(":"+port, r)
 }
 
 func serve(h http.Handler, addr string) {
