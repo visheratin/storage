@@ -9,8 +9,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/tinylib/msgp/msgp"
-
 	"github.com/julienschmidt/httprouter"
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/visheratin/storage/netcdf"
@@ -64,8 +62,11 @@ func queryHandler(w http.ResponseWriter, r *http.Request, ps httprouter.Params) 
 	res, err = netcdf.Lookup(f, q.Variable, q.Coordinates)
 
 	if err == nil {
-		wr := msgp.NewWriter(w)
-		err = res.EncodeMsg(wr)
+		b, err := res.MarshalMsg(nil)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
+		_, err = w.Write(b)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
