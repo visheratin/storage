@@ -8,6 +8,8 @@ import (
 	"log"
 	"net/http"
 
+	"github.com/tinylib/msgp/msgp"
+
 	"time"
 
 	"github.com/julienschmidt/httprouter"
@@ -67,7 +69,11 @@ func queryHandler(w http.ResponseWriter, r *http.Request, ps httprouter.Params) 
 	log.Println(time.Now().Unix()-lop, "Lookup time")
 
 	if err == nil {
-		json.NewEncoder(w).Encode(res)
+		wr := msgp.NewWriter(w)
+		err = res.EncodeMsg(wr)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+		}
 	} else {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}

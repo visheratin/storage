@@ -127,12 +127,28 @@ func getSlice(v netcdf.Var, offsets []int, lens []int) (res *Result, err error) 
 	if err != nil {
 		return nil, err
 	}
-
-	buf := new(bytes.Buffer)
 	total := 1
 	for _, l := range lens {
 		total *= l
 	}
+	var len int
+	switch t {
+	case netcdf.BYTE:
+		len = total
+	case netcdf.SHORT:
+		len = total * 2
+	case netcdf.INT:
+		len = total * 4
+	case netcdf.INT64:
+		len = total * 8
+	case netcdf.FLOAT:
+		len = total * 4
+	case netcdf.DOUBLE:
+		len = total * 8
+	case netcdf.CHAR:
+		len = total
+	}
+	buf := bytes.NewBuffer(make([]byte, len))
 	switch t {
 	case netcdf.BYTE:
 		data := make([]int8, total)
