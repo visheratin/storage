@@ -7,10 +7,9 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 
 	"github.com/tinylib/msgp/msgp"
-
-	"time"
 
 	"github.com/julienschmidt/httprouter"
 	_ "github.com/mattn/go-sqlite3"
@@ -53,20 +52,16 @@ type Query struct {
 func queryHandler(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	path := ps.ByName("path")
 
+	path = strings.Replace(path, "```", "/", -1)
 	var q Query
 	err := json.NewDecoder(r.Body).Decode(&q)
 
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
-	rslv := time.Now().Unix()
 	f := s.Resolve(path)
-	log.Println(time.Now().Unix()-rslv, "Path resolution time")
-
-	lop := time.Now().Unix()
 	res := &netcdf.Result{}
 	res, err = netcdf.Lookup(f, q.Variable, q.Coordinates)
-	log.Println(time.Now().Unix()-lop, "Lookup time")
 
 	if err == nil {
 		wr := msgp.NewWriter(w)
