@@ -101,6 +101,7 @@ func downloadHandler(w http.ResponseWriter, r *http.Request, ps httprouter.Param
 
 func uploadHandler(w http.ResponseWriter, r *http.Request, ps httprouter.Params) {
 	path := ps.ByName("path")
+	path = strings.Replace(path, "...", "/", -1)
 	err := s.Save(path, r.Body)
 	defer r.Body.Close()
 	if err != nil {
